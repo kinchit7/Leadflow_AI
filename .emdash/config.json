@@ -1,0 +1,43 @@
+{
+  "providers": {
+    "wix": {
+      "base_url": "https://vibe.wix.com/_api/picasso-openai-proxy/v1",
+      "api_key": "placeholder",
+      "headers": {
+        "Authorization": "$WIX_TOKEN"
+      },
+      "models": {
+        "kimi-k2p5": {
+          "id": "accounts/fireworks/models/kimi-k2p5",
+          "supports_vision": true,
+          "supports_thinking": true
+        },
+        "gpt-5.2": {
+          "id": "wix/openai/gpt-5.2",
+          "supports_vision": true,
+          "supports_thinking": true
+        }
+      }
+    }
+  },
+  "default_model": "wix:gpt-5.2",
+  "vision_model": "wix:gpt-5.2",
+  "fast_model": "wix:gpt-5.2",
+  "settings": {
+    "thinking_budget": 500,
+    "reasoning_effort": "low",
+    "reasoning": true,
+    "thinking": true,
+    "inject_context_frame": false,
+    "enable_apply_diff": true,
+    "session_autosave": true,
+    "log_llm_payload": false,
+    "use_worktree": false,
+    "tasks_v2": true,
+    "max_workers": 4,
+    "batch_size": 1000,
+    "compaction_strategy": "observational_memory",
+    "checkpoints_enabled": false,
+    "parallel_tool_calls": true
+  }
+}

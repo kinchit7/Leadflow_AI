@@ -56,7 +56,7 @@
     "@typescript-eslint/visitor-keys": "^8.47.0",
     "@wix/astro": "2.38.0",
     "@wix/astro-pages": "^2.0.1",
-    "@wix/babel-plugin-jsx-dynamic-data": "1.0.17",
+    "@wix/babel-plugin-jsx-dynamic-data": "1.0.19",
     "@wix/babel-plugin-jsx-source-attrs": "^1.1.0",
     "@wix/benefit-programs": "^1.0.121",
     "@wix/blog": "^1.0.557",
