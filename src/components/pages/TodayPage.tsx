@@ -1,23 +1,37 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useMember } from '@/integrations';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, TrendingUp, Clock, Users, Ticket } from 'lucide-react';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { AlertCircle, TrendingUp, Clock, Users, Ticket, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function TodayPage() {
+  const { member } = useMember();
   const [mounted, setMounted] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [metrics, setMetrics] = useState({
+    hotLeads: 0,
+    followupsDueToday: 0,
+    overdueFollowups: 0,
+    openOpportunities: 0,
+    openTickets: 0,
+  });
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    // TODO: Load real metrics from backend
+    // For now, show placeholder
+    setIsLoading(false);
+  }, [member]);
 
   const operationalCards = [
     {
       title: 'Hot Leads',
       icon: TrendingUp,
-      count: 0,
+      count: metrics.hotLeads,
       description: 'High-priority leads requiring immediate attention',
       color: 'text-primary',
       link: '/leads?filter=hot'
@@ -25,23 +39,23 @@ export default function TodayPage() {
     {
       title: 'Follow-ups Due',
       icon: Clock,
-      count: 0,
+      count: metrics.followupsDueToday,
       description: 'Follow-ups scheduled for today',
       color: 'text-secondary',
       link: '/follow-ups?view=today'
     },
     {
-      title: 'Needs Attention',
+      title: 'Overdue Items',
       icon: AlertCircle,
-      count: 0,
+      count: metrics.overdueFollowups,
       description: 'Items requiring your immediate action',
       color: 'text-accent-gold',
-      link: '/inbox'
+      link: '/follow-ups?view=overdue'
     },
     {
       title: 'Open Support Issues',
       icon: Ticket,
-      count: 0,
+      count: metrics.openTickets,
       description: 'Active support tickets',
       color: 'text-destructive',
       link: '/support?status=open'
@@ -49,7 +63,7 @@ export default function TodayPage() {
     {
       title: 'Active Opportunities',
       icon: Users,
-      count: 0,
+      count: metrics.openOpportunities,
       description: 'Opportunities in progress',
       color: 'text-secondary',
       link: '/leads?view=opportunities'
@@ -72,7 +86,11 @@ export default function TodayPage() {
           </div>
 
           <div style={{ minHeight: '400px' }}>
-            {mounted && (
+            {isLoading ? (
+              <div className="flex items-center justify-center h-96">
+                <LoadingSpinner />
+              </div>
+            ) : mounted ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {operationalCards.map((card, index) => {
                   const Icon = card.icon;
@@ -107,8 +125,19 @@ export default function TodayPage() {
                   );
                 })}
               </div>
-            )}
+            ) : null}
           </div>
+
+          {/* Empty state */}
+          {mounted && !isLoading && metrics.hotLeads === 0 && metrics.followupsDueToday === 0 && (
+            <div className="mt-12 text-center">
+              <CheckCircle className="h-16 w-16 text-secondary mx-auto mb-4 opacity-50" />
+              <h2 className="font-heading text-2xl text-foreground mb-2">All caught up!</h2>
+              <p className="font-paragraph text-muted-grey-foreground">
+                No urgent items require your attention right now.
+              </p>
+            </div>
+          )}
         </div>
       </main>
 

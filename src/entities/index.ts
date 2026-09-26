@@ -4,6 +4,37 @@
  */
 
 /**
+ * Collection ID: activityevents
+ * Interface for ActivityEvents
+ */
+export interface ActivityEvents {
+  _id: string;
+  _createdDate?: Date;
+  _updatedDate?: Date;
+  /** @wixFieldType text */
+  eventType?: string;
+  /** @wixFieldType text */
+  tenantId?: string;
+  /** @wixFieldType text */
+  customerId?: string;
+  /** @wixFieldType text */
+  actor?: string;
+  /** @wixFieldType text */
+  relatedRecordType?: string;
+  /** @wixFieldType text */
+  relatedRecordId?: string;
+  /** @wixFieldType datetime */
+  timestamp?: Date | string;
+  /** @wixFieldType text */
+  description?: string;
+  /** @wixFieldType text */
+  metadata?: string;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+}
+
+
+/**
  * Collection ID: auditlogs
  * Interface for AuditLogs
  */
@@ -107,6 +138,10 @@ export interface Conversations {
   _updatedDate?: Date;
   /** @wixFieldType text */
   subject?: string;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   status?: string;
   /** @wixFieldType datetime */
@@ -153,6 +188,10 @@ export interface Customers {
   _updatedDate?: Date;
   /** @wixFieldType text */
   fullName?: string;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   email?: string;
   /** @wixFieldType text */
@@ -199,6 +238,10 @@ export interface Followups {
   _id: string;
   _createdDate?: Date;
   _updatedDate?: Date;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   title?: string;
   /** @wixFieldType date */
@@ -253,6 +296,18 @@ export interface Leads {
   _id: string;
   _createdDate?: Date;
   _updatedDate?: Date;
+  /** @wixFieldType datetime */
+  priorityOverrideDate?: Date | string;
+  /** @wixFieldType boolean */
+  priorityOverride?: boolean;
+  /** @wixFieldType text */
+  priorityOverrideBy?: string;
+  /** @wixFieldType text */
+  priorityOverrideReason?: string;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   customer?: string;
   /** @wixFieldType text */
@@ -286,6 +341,10 @@ export interface Messages {
   _id: string;
   _createdDate?: Date;
   _updatedDate?: Date;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   sender?: string;
   /** @wixFieldType text */
@@ -334,6 +393,18 @@ export interface Opportunities {
   _updatedDate?: Date;
   /** @wixFieldType text */
   opportunityName?: string;
+  /** @wixFieldType datetime */
+  priorityOverrideDate?: Date | string;
+  /** @wixFieldType text */
+  priorityOverrideBy?: string;
+  /** @wixFieldType text */
+  priorityOverrideReason?: string;
+  /** @wixFieldType boolean */
+  priorityOverride?: boolean;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   leadTitle?: string;
   /** @wixFieldType number */
@@ -480,6 +551,10 @@ export interface SupportTickets {
   _updatedDate?: Date;
   /** @wixFieldType text */
   issueDescription?: string;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+  /** @wixFieldType text */
+  businessId?: string;
   /** @wixFieldType text */
   status?: string;
   /** @wixFieldType text */
