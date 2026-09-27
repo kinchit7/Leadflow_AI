@@ -5,6 +5,7 @@
  */
 
 import { BaseCrudService } from '@/integrations/cms';
+import { Followups } from '@/entities';
 
 export interface ActivityEvent {
   _id: string;
@@ -259,4 +260,21 @@ export async function logNoteAdded(
     timestamp: new Date(),
     description: `Note added: ${noteContent.substring(0, 100)}${noteContent.length > 100 ? '...' : ''}`,
   });
+}
+
+/**
+ * Check if follow-up is overdue
+ */
+export function isFollowupOverdue(followup: Followups): boolean {
+  if (followup.status === 'Completed') return false;
+  return new Date(followup.dueDate!) < new Date();
+}
+
+/**
+ * Get days until follow-up due
+ */
+export function getDaysUntilDue(followup: Followups): number {
+  const dueDate = new Date(followup.dueDate!);
+  const today = new Date();
+  return Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
