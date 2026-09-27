@@ -9,6 +9,9 @@ import { Button } from '@/components/ui/button';
 import { AlertCircle, TrendingUp, Clock, Users, Ticket, ArrowRight, ChevronRight, Shield, Zap, BarChart } from 'lucide-react';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import { Image } from '@/components/ui/image';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getDashboardMetrics } from '@/backend/today-service.web';
+import { ErrorAlert } from '@/components/ErrorBoundary';
 
 // --- Animation Variants ---
 const fadeUp = {
@@ -31,7 +34,16 @@ const lineDraw = {
 
 export default function HomePage() {
   const { member, isAuthenticated } = useMember();
+  const { executeWithAuth, error, clearError } = useBackendService();
   const [mounted, setMounted] = useState(false);
+  const [metrics, setMetrics] = useState({
+    newLeads: 0,
+    dueTodayFollowups: 0,
+    overdueFollowups: 0,
+    openOpportunities: 0,
+    openTickets: 0,
+  });
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { scrollYProgress } = useScroll({
@@ -46,12 +58,30 @@ export default function HomePage() {
     setMounted(true);
   }, []);
 
-  // Canonical Data Source Preserved
+  // Load metrics when authenticated
+  useEffect(() => {
+    if (isAuthenticated && mounted) {
+      loadMetrics();
+    }
+  }, [isAuthenticated, mounted]);
+
+  const loadMetrics = async () => {
+    setIsLoadingMetrics(true);
+    const result = await executeWithAuth(async (auth) => {
+      return await getDashboardMetrics(auth);
+    });
+    if (result) {
+      setMetrics(result);
+    }
+    setIsLoadingMetrics(false);
+  };
+
+  // Operational Cards with dynamic counts
   const operationalCards = [
     {
       title: 'Hot Leads',
       icon: TrendingUp,
-      count: 0,
+      count: metrics.newLeads,
       description: 'High-priority leads requiring immediate attention',
       color: 'text-primary',
       link: '/leads?filter=hot'
@@ -59,23 +89,23 @@ export default function HomePage() {
     {
       title: 'Follow-ups Due',
       icon: Clock,
-      count: 0,
+      count: metrics.dueTodayFollowups,
       description: 'Follow-ups scheduled for today',
       color: 'text-secondary',
       link: '/follow-ups?view=today'
     },
     {
-      title: 'Needs Attention',
+      title: 'Overdue Items',
       icon: AlertCircle,
-      count: 0,
+      count: metrics.overdueFollowups,
       description: 'Items requiring your immediate action',
       color: 'text-accent-gold',
-      link: '/inbox'
+      link: '/follow-ups?view=overdue'
     },
     {
       title: 'Open Support Issues',
       icon: Ticket,
-      count: 0,
+      count: metrics.openTickets,
       description: 'Active support tickets',
       color: 'text-destructive',
       link: '/support?status=open'
@@ -83,7 +113,7 @@ export default function HomePage() {
     {
       title: 'Active Opportunities',
       icon: Users,
-      count: 0,
+      count: metrics.openOpportunities,
       description: 'Opportunities in progress',
       color: 'text-secondary',
       link: '/leads?view=opportunities'
@@ -96,6 +126,11 @@ export default function HomePage() {
       <Header />
       
       <main className="flex-1 flex flex-col w-full overflow-clip">
+        {error && (
+          <div className="max-w-[100rem] mx-auto px-6 lg:px-12 pt-6 w-full">
+            <ErrorAlert error={error} onDismiss={clearError} />
+          </div>
+        )}
         
         {mounted && (
           <>
@@ -338,7 +373,7 @@ export default function HomePage() {
                       <div className="text-right hidden md:block">
                         <p className="text-sm text-muted-grey-foreground">System Status</p>
                         <p className="text-sm font-medium text-emerald-600 flex items-center gap-2 justify-end">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Optimal
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> {isLoadingMetrics ? 'Loading...' : 'Optimal'}
                         </p>
                       </div>
                     </div>

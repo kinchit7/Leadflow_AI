@@ -25,12 +25,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Search, Eye, Edit, TrendingUp } from 'lucide-react';
+import { Plus, Search, Eye, Edit, TrendingUp, AlertCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getLeadsForBusiness, createLeadAuthorized, updateLeadAuthorized, deleteLeadAuthorized } from '@/backend/leads-service.web';
+import { ErrorAlert } from '@/components/ErrorBoundary';
 
 export default function LeadsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { executeWithAuth, error, clearError } = useBackendService();
   const [leads, setLeads] = useState<Leads[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -61,24 +65,24 @@ export default function LeadsPage() {
 
   const loadLeads = async () => {
     setIsLoading(true);
-    try {
-      const result = await BaseCrudService.getAll<Leads>('leads');
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await getLeadsForBusiness(auth, 100, 0);
+    });
+    if (result) {
       setLeads(result.items);
-    } catch (error) {
-      console.error('Error loading leads:', error);
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   const handleCreateLead = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await BaseCrudService.create('leads', {
-        _id: crypto.randomUUID(),
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await createLeadAuthorized({
         customer: formData.customer,
         source: formData.source,
-        priority: formData.priority,
+        priority: formData.priority as 'HIGH' | 'MEDIUM' | 'LOW',
         stage: formData.stage,
         owner: formData.owner,
         value: parseFloat(formData.value) || 0,
@@ -87,24 +91,24 @@ export default function LeadsPage() {
         location: formData.location,
         timeline: formData.timeline,
         nextFollowUp: formData.nextFollowUp ? new Date(formData.nextFollowUp).toISOString() : undefined,
-      });
+      }, auth);
+    });
+    if (result) {
       setIsCreateDialogOpen(false);
       resetForm();
       loadLeads();
-    } catch (error) {
-      console.error('Error creating lead:', error);
     }
   };
 
   const handleUpdateLead = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedLead) return;
-    try {
-      await BaseCrudService.update('leads', {
-        _id: selectedLead._id,
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await updateLeadAuthorized(selectedLead._id, {
         customer: formData.customer,
         source: formData.source,
-        priority: formData.priority,
+        priority: formData.priority as 'HIGH' | 'MEDIUM' | 'LOW',
         stage: formData.stage,
         owner: formData.owner,
         value: parseFloat(formData.value) || 0,
@@ -113,13 +117,13 @@ export default function LeadsPage() {
         location: formData.location,
         timeline: formData.timeline,
         nextFollowUp: formData.nextFollowUp ? new Date(formData.nextFollowUp).toISOString() : undefined,
-      });
+      }, auth);
+    });
+    if (result) {
       setIsEditDialogOpen(false);
       setSelectedLead(null);
       resetForm();
       loadLeads();
-    } catch (error) {
-      console.error('Error updating lead:', error);
     }
   };
 
@@ -347,6 +351,8 @@ export default function LeadsPage() {
 
       <main className="flex-1 py-8 lg:py-12">
         <div className="max-w-[100rem] mx-auto px-6 lg:px-20">
+          {error && <ErrorAlert error={error} onDismiss={clearError} />}
+          
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 space-y-4 md:space-y-0">
             <div>
               <h1 className="font-heading text-4xl lg:text-5xl text-foreground mb-2">Leads</h1>
