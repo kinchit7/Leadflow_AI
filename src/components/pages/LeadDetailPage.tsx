@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { BaseCrudService } from '@/integrations';
 import { Leads } from '@/entities';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -9,12 +8,16 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ArrowLeft, User, MapPin, Calendar, DollarSign, Target, Clock } from 'lucide-react';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getLeadAuthorized, updateLeadAuthorized, overrideLeadPriority } from '@/backend/leads-service.web';
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { executeWithAuth, error, clearError } = useBackendService();
   const [lead, setLead] = useState<Leads | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -24,14 +27,40 @@ export default function LeadDetailPage() {
 
   const loadLead = async () => {
     setIsLoading(true);
-    try {
-      const data = await BaseCrudService.getById<Leads>('leads', id!);
-      setLead(data);
-    } catch (error) {
-      console.error('Error loading lead:', error);
-    } finally {
-      setIsLoading(false);
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await getLeadAuthorized(id!, auth);
+    });
+    if (result) {
+      setLead(result);
     }
+    setIsLoading(false);
+  };
+
+  const handleUpdateStage = async (newStage: string) => {
+    if (!lead) return;
+    setIsUpdating(true);
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await updateLeadAuthorized(lead._id, { stage: newStage }, auth);
+    });
+    if (result) {
+      setLead(result);
+    }
+    setIsUpdating(false);
+  };
+
+  const handlePriorityOverride = async (newPriority: 'HIGH' | 'MEDIUM' | 'LOW', reason: string) => {
+    if (!lead) return;
+    setIsUpdating(true);
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await overrideLeadPriority(lead._id, newPriority, reason, auth);
+    });
+    if (result) {
+      setLead(result);
+    }
+    setIsUpdating(false);
   };
 
   const getPriorityColor = (priority?: string) => {

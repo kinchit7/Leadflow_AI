@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { BaseCrudService } from '@/integrations';
 import { Customers } from '@/entities';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -19,14 +18,19 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Search, Eye, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getCustomersForBusiness, createCustomerAuthorized, updateCustomerAuthorized, deleteCustomerAuthorized } from '@/backend/customers-service.web';
 
 export default function CustomersPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { executeWithAuth, error, clearError } = useBackendService();
   const [customers, setCustomers] = useState<Customers[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customers | null>(null);
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -46,35 +50,91 @@ export default function CustomersPage() {
 
   const loadCustomers = async () => {
     setIsLoading(true);
-    try {
-      const result = await BaseCrudService.getAll<Customers>('customers');
+    clearError();
+    const result = await executeWithAuth(async (auth) => {
+      return await getCustomersForBusiness(auth, 100, 0);
+    });
+    if (result) {
       setCustomers(result.items);
-    } catch (error) {
-      console.error('Error loading customers:', error);
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await BaseCrudService.create('customers', {
-        _id: crypto.randomUUID(),
-        fullName: formData.fullName,
-        email: formData.email,
-        phoneNumber: formData.phoneNumber,
-        address: formData.address,
-        city: formData.city,
-        notes: formData.notes,
-        profilePicture: 'https://static.wixstatic.com/media/7ab5f2_13078d8bf21e4c878350cc0d4e4cdc4b~mv2.png?originWidth=128&originHeight=128',
-      });
+    clearError();
+    const success = await executeWithAuth(async (auth) => {
+      await createCustomerAuthorized(
+        {
+          fullName: formData.fullName,
+          email: formData.email,
+          phoneNumber: formData.phoneNumber,
+          address: formData.address,
+          city: formData.city,
+          notes: formData.notes,
+          businessId: auth.businessId,
+          isDemo: false,
+        },
+        auth
+      );
+      return true;
+    });
+    if (success) {
       setIsCreateDialogOpen(false);
       resetForm();
       loadCustomers();
-    } catch (error) {
-      console.error('Error creating customer:', error);
     }
+  };
+
+  const handleEditCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedCustomer) return;
+    clearError();
+    const success = await executeWithAuth(async (auth) => {
+      await updateCustomerAuthorized(
+        selectedCustomer._id,
+        {
+          fullName: formData.fullName,
+          email: formData.email,
+          phoneNumber: formData.phoneNumber,
+          address: formData.address,
+          city: formData.city,
+          notes: formData.notes,
+        },
+        auth
+      );
+      return true;
+    });
+    if (success) {
+      setIsEditDialogOpen(false);
+      resetForm();
+      setSelectedCustomer(null);
+      loadCustomers();
+    }
+  };
+
+  const handleDeleteCustomer = async (customerId: string) => {
+    if (!confirm('Are you sure you want to delete this customer?')) return;
+    clearError();
+    const success = await executeWithAuth(async (auth) => {
+      return await deleteCustomerAuthorized(customerId, auth);
+    });
+    if (success) {
+      loadCustomers();
+    }
+  };
+
+  const openEditDialog = (customer: Customers) => {
+    setSelectedCustomer(customer);
+    setFormData({
+      fullName: customer.fullName || '',
+      email: customer.email || '',
+      phoneNumber: customer.phoneNumber || '',
+      address: customer.address || '',
+      city: customer.city || '',
+      notes: customer.notes || '',
+    });
+    setIsEditDialogOpen(true);
   };
 
   const resetForm = () => {
@@ -203,6 +263,12 @@ export default function CustomersPage() {
             </Dialog>
           </div>
 
+          {error && (
+            <div className="mb-6 p-4 bg-destructive/10 border border-destructive text-destructive rounded-md">
+              <p className="font-paragraph">{error.message}</p>
+            </div>
+          )}
+
           <div style={{ minHeight: '500px' }}>
             <Card className="bg-white border border-gray-200">
               <div className="p-4 border-b border-gray-200">
@@ -238,9 +304,7 @@ export default function CustomersPage() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                       >
-                        <Card className="bg-white border border-gray-200 hover:border-primary/50 transition-colors cursor-pointer"
-                          onClick={() => navigate(`/customers/${customer._id}`)}
-                        >
+                        <Card className="bg-white border border-gray-200 hover:border-primary/50 transition-colors">
                           <div className="p-6">
                             <div className="flex items-start space-x-4">
                               {customer.profilePicture && (
@@ -277,10 +341,7 @@ export default function CustomersPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="w-full"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate(`/customers/${customer._id}`);
-                                }}
+                                onClick={() => navigate(`/customers/${customer._id}`)}
                               >
                                 <Eye className="h-4 w-4 mr-2" />
                                 View Details
