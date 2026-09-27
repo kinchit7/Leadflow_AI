@@ -9,9 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Image } from '@/components/ui/image';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Mail, Phone, MapPin, FileText, TrendingUp, CheckCircle, AlertCircle, Clock } from 'lucide-react';
+import { ArrowLeft, Mail, Phone, MapPin, FileText, TrendingUp, CheckCircle, AlertCircle, Clock, Sparkles, RefreshCw } from 'lucide-react';
 import { useBackendService } from '@/hooks/useBackendService';
 import { getCustomer360, Customer360 } from '@/backend/customer-360.web';
+import type { AICustomerBrief } from '@/backend/ai-customer-service.web';
 
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,10 +20,14 @@ export default function CustomerDetailPage() {
   const { executeWithAuth, error, clearError } = useBackendService();
   const [customer360, setCustomer360] = useState<Customer360 | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [aiBrief, setAIBrief] = useState<AICustomerBrief | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) {
       loadCustomer360();
+      loadAIBrief();
     }
   }, [id]);
 
@@ -36,6 +41,87 @@ export default function CustomerDetailPage() {
       setCustomer360(result);
     }
     setIsLoading(false);
+  };
+
+  const loadAIBrief = async () => {
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const response = await fetch(`/api/ai-customer-brief?customerId=${id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAIBrief(data.data);
+      } else if (response.status !== 404) {
+        setBriefError('Failed to load AI brief');
+      }
+    } catch (err) {
+      console.error('Error loading AI brief:', err);
+      setBriefError('Error loading AI brief');
+    } finally {
+      setBriefLoading(false);
+    }
+  };
+
+  const handleGenerateBrief = async () => {
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const response = await fetch('/api/ai-customer-brief/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          customerId: id,
+          isDemo: false
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAIBrief(data.data);
+      } else {
+        setBriefError('Failed to generate AI brief');
+      }
+    } catch (err) {
+      console.error('Error generating AI brief:', err);
+      setBriefError('Error generating AI brief');
+    } finally {
+      setBriefLoading(false);
+    }
+  };
+
+  const handleInvalidateBrief = async () => {
+    setBriefLoading(true);
+    setBriefError(null);
+    try {
+      const response = await fetch('/api/ai-customer-brief/invalidate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          customerId: id
+        })
+      });
+
+      if (response.ok) {
+        setAIBrief(null);
+      } else {
+        setBriefError('Failed to invalidate AI brief');
+      }
+    } catch (err) {
+      console.error('Error invalidating AI brief:', err);
+      setBriefError('Error invalidating AI brief');
+    } finally {
+      setBriefLoading(false);
+    }
   };
 
   const getStageColor = (stage?: string) => {
@@ -208,6 +294,147 @@ export default function CustomerDetailPage() {
                     </CardContent>
                   </Card>
                 </div>
+
+                {/* AI Customer Brief Section */}
+                <Card className="bg-white border border-gray-200">
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Sparkles className="h-5 w-5 text-accent-gold" />
+                      <CardTitle className="font-heading text-2xl">AI Customer Brief</CardTitle>
+                    </div>
+                    {aiBrief && (
+                      <Badge className="bg-green-100 text-green-800">Generated</Badge>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {briefError && (
+                      <div className="p-4 bg-destructive/10 border border-destructive text-destructive rounded-md">
+                        <p className="font-paragraph text-sm">{briefError}</p>
+                      </div>
+                    )}
+
+                    {!aiBrief && !briefLoading && (
+                      <div className="text-center py-8">
+                        <p className="font-paragraph text-muted-grey-foreground mb-4">
+                          No AI brief has been generated yet. Click the button below to generate one.
+                        </p>
+                        <Button
+                          onClick={handleGenerateBrief}
+                          disabled={briefLoading}
+                          className="bg-accent-gold hover:bg-accent-gold/90 text-accent-gold-foreground"
+                        >
+                          {briefLoading ? (
+                            <>
+                              <LoadingSpinner className="h-4 w-4 mr-2" />
+                              Generating...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="h-4 w-4 mr-2" />
+                              Generate AI Brief
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    )}
+
+                    {briefLoading && !aiBrief && (
+                      <div className="text-center py-8">
+                        <LoadingSpinner className="mx-auto mb-4" />
+                        <p className="font-paragraph text-muted-grey-foreground">
+                          Generating AI brief... This may take a moment.
+                        </p>
+                      </div>
+                    )}
+
+                    {aiBrief && (
+                      <div className="space-y-4">
+                        <div className="flex justify-end space-x-2">
+                          <Button
+                            onClick={handleGenerateBrief}
+                            disabled={briefLoading}
+                            variant="outline"
+                            size="sm"
+                          >
+                            {briefLoading ? (
+                              <>
+                                <LoadingSpinner className="h-4 w-4 mr-2" />
+                                Refreshing...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Refresh
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            onClick={handleInvalidateBrief}
+                            disabled={briefLoading}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Clear
+                          </Button>
+                        </div>
+
+                        {/* Brief Content */}
+                        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                          <p className="font-paragraph text-foreground whitespace-pre-wrap text-sm">
+                            {aiBrief.briefContent}
+                          </p>
+                        </div>
+
+                        {/* Key Insights */}
+                        {aiBrief.keyInsights && (
+                          <div>
+                            <h4 className="font-heading text-lg text-foreground mb-3">Key Insights</h4>
+                            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                              <p className="font-paragraph text-sm text-foreground">{aiBrief.keyInsights}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Recommended Actions */}
+                        {aiBrief.recommendedActions && (
+                          <div>
+                            <h4 className="font-heading text-lg text-foreground mb-3">Recommended Actions</h4>
+                            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                              <p className="font-paragraph text-sm text-foreground">{aiBrief.recommendedActions}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Risk Factors */}
+                        {aiBrief.riskFactors && (
+                          <div>
+                            <h4 className="font-heading text-lg text-foreground mb-3">Risk Factors</h4>
+                            <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                              <p className="font-paragraph text-sm text-foreground">{aiBrief.riskFactors}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Opportunities */}
+                        {aiBrief.opportunities && (
+                          <div>
+                            <h4 className="font-heading text-lg text-foreground mb-3">Opportunities</h4>
+                            <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                              <p className="font-paragraph text-sm text-foreground">{aiBrief.opportunities}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Metadata */}
+                        <div className="pt-4 border-t border-gray-200">
+                          <p className="font-paragraph text-xs text-muted-grey-foreground">
+                            Generated {new Date(aiBrief.generatedAt).toLocaleString()} by {aiBrief.aiProvider} ({aiBrief.modelVersion})
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
 
                 {/* Detailed Tabs */}
                 <Card className="bg-white border border-gray-200">

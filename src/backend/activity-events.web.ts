@@ -12,11 +12,11 @@ export interface ActivityEvent {
   eventType: 'customer_created' | 'customer_updated' | 'lead_created' | 'lead_assigned' | 
             'lead_stage_changed' | 'opportunity_created' | 'opportunity_stage_changed' | 
             'followup_created' | 'followup_completed' | 'support_created' | 'support_status_changed' | 
-            'note_added' | 'message_sent' | 'call_logged' | 'email_sent';
+            'note_added' | 'message_sent' | 'call_logged' | 'email_sent' | 'ai_brief_generated' | 'ai_brief_invalidated';
   tenantId: string;
   customerId: string;
   actor: string; // userId or system
-  relatedRecordType?: string; // 'lead', 'opportunity', 'followup', 'support', 'note'
+  relatedRecordType?: string; // 'lead', 'opportunity', 'followup', 'support', 'note', 'ai_brief'
   relatedRecordId?: string;
   timestamp: Date | string;
   description: string;

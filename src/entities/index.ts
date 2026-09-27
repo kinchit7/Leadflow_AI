@@ -35,6 +35,41 @@ export interface ActivityEvents {
 
 
 /**
+ * Collection ID: aicustomerbriefs
+ * Interface for AICustomerBriefs
+ */
+export interface AICustomerBriefs {
+  _id: string;
+  _createdDate?: Date;
+  _updatedDate?: Date;
+  /** @wixFieldType text */
+  customerId?: string;
+  /** @wixFieldType text */
+  businessId?: string;
+  /** @wixFieldType text */
+  briefContent?: string;
+  /** @wixFieldType text */
+  keyInsights?: string;
+  /** @wixFieldType text */
+  recommendedActions?: string;
+  /** @wixFieldType text */
+  riskFactors?: string;
+  /** @wixFieldType text */
+  opportunities?: string;
+  /** @wixFieldType datetime */
+  generatedAt?: Date | string;
+  /** @wixFieldType text */
+  generatedBy?: string;
+  /** @wixFieldType text */
+  aiProvider?: string;
+  /** @wixFieldType text */
+  modelVersion?: string;
+  /** @wixFieldType boolean */
+  isDemo?: boolean;
+}
+
+
+/**
  * Collection ID: auditlogs
  * Interface for AuditLogs
  */
