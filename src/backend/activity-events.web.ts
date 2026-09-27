@@ -86,6 +86,44 @@ export async function getCustomerActivityTimeline(
 }
 
 /**
+ * Log customer created
+ */
+export async function logCustomerCreated(
+  customerId: string,
+  tenantId: string,
+  actor: string,
+  customerName: string
+): Promise<void> {
+  await createActivityEvent({
+    eventType: 'customer_created',
+    tenantId,
+    customerId,
+    actor,
+    timestamp: new Date(),
+    description: `Customer created: ${customerName}`,
+  });
+}
+
+/**
+ * Log customer updated
+ */
+export async function logCustomerUpdated(
+  customerId: string,
+  tenantId: string,
+  actor: string,
+  customerName: string
+): Promise<void> {
+  await createActivityEvent({
+    eventType: 'customer_updated',
+    tenantId,
+    customerId,
+    actor,
+    timestamp: new Date(),
+    description: `Customer updated: ${customerName}`,
+  });
+}
+
+/**
  * Log lead creation event
  */
 export async function logLeadCreated(
