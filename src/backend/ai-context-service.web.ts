@@ -1,52 +1,34 @@
 import { ok, badRequest, forbidden, notFound, serverError } from 'wix-http-functions';
-import { getSecretKey } from 'wix-secrets';
 import { getCurrentMember } from 'wix-members-backend';
-import { query } from 'wix-data';
+import { resolveAuthContext, AuthContext } from './auth.web';
+import { getCustomer360 } from './customer-360.web';
+import { getCompleteKnowledgeBase } from './business-brain-service.web';
 
 /**
- * AI Context Service
+ * AI Context Service - Orchestration Layer
  * Provides centralized server-side AI context builder
- * Aggregates data from Customer 360 and Knowledge Base
+ * Aggregates data from Customer 360 and Knowledge Base services
  * Enforces tenant isolation and authorization
+ * 
+ * This service acts as a thin orchestration layer that:
+ * - Reuses canonical getCustomer360 from customer-360.web.ts
+ * - Reuses canonical getCompleteKnowledgeBase from business-brain-service.web.ts
+ * - Maintains tenant isolation through AuthContext
+ * - Delegates authorization to underlying services
  */
 
-interface AuthContext {
-  memberId: string;
-  tenantId: string;
-  isAuthorized: boolean;
-}
-
-interface Customer360Data {
-  customerId: string;
-  fullName: string;
-  email: string;
-  phoneNumber: string;
-  address: string;
-  city: string;
-  notes: string;
-  profilePicture: string;
-  interactions: any[];
-  opportunities: any[];
-  followUps: any[];
-}
-
-interface KnowledgeBaseData {
-  items: any[];
-  faqs: any[];
-  policies: any[];
-}
-
 interface AIContextData {
-  customer: Customer360Data | null;
-  knowledgeBase: KnowledgeBaseData;
+  customer: any;
+  knowledgeBase: any;
   timestamp: string;
   contextVersion: string;
 }
 
 /**
- * Validates and extracts authentication context
+ * Validates and extracts authentication context from current member session
+ * Delegates to auth.web.ts for tenant resolution
  */
-async function validateAuthContext(request: any): Promise<AuthContext> {
+async function validateAuthContext(): Promise<AuthContext> {
   try {
     const member = await getCurrentMember({
       fieldsets: ['FULL']
@@ -56,132 +38,41 @@ async function validateAuthContext(request: any): Promise<AuthContext> {
       throw new Error('Unauthorized: No valid member session');
     }
 
-    // Extract tenant ID from member metadata or request headers
-    const tenantId = member.customFields?.['tenant-id'] || 
-                     request.headers['x-tenant-id'] || 
-                     member.id;
+    const authContext = await resolveAuthContext(member.id);
+    if (!authContext) {
+      throw new Error('Failed to resolve authentication context');
+    }
 
-    return {
-      memberId: member.id,
-      tenantId,
-      isAuthorized: true
-    };
+    return authContext;
   } catch (error) {
     throw new Error(`Authentication failed: ${error.message}`);
   }
 }
 
 /**
- * Retrieves Customer 360 data with tenant isolation
- */
-async function getCustomer360Data(
-  customerId: string,
-  tenantId: string
-): Promise<Customer360Data | null> {
-  try {
-    // Query customer with tenant isolation
-    const customerResults = await query('customers')
-      .eq('_id', customerId)
-      .eq('businessId', tenantId)
-      .limit(1)
-      .find();
-
-    if (!customerResults.items || customerResults.items.length === 0) {
-      return null;
-    }
-
-    const customer = customerResults.items[0];
-
-    // Fetch related interactions (messages)
-    const messagesResults = await query('messages')
-      .eq('businessId', tenantId)
-      .eq('sender', customerId)
-      .limit(50)
-      .find();
-
-    // Fetch related opportunities
-    const opportunitiesResults = await query('opportunities')
-      .eq('businessId', tenantId)
-      .limit(100)
-      .find();
-
-    // Fetch related follow-ups
-    const followUpsResults = await query('followups')
-      .eq('businessId', tenantId)
-      .limit(50)
-      .find();
-
-    return {
-      customerId: customer._id,
-      fullName: customer.fullName || '',
-      email: customer.email || '',
-      phoneNumber: customer.phoneNumber || '',
-      address: customer.address || '',
-      city: customer.city || '',
-      notes: customer.notes || '',
-      profilePicture: customer.profilePicture || '',
-      interactions: messagesResults.items || [],
-      opportunities: opportunitiesResults.items || [],
-      followUps: followUpsResults.items || []
-    };
-  } catch (error) {
-    console.error('Error fetching Customer 360 data:', error);
-    throw new Error(`Failed to fetch customer data: ${error.message}`);
-  }
-}
-
-/**
- * Retrieves complete knowledge base with tenant isolation
- */
-async function getCompleteKnowledgeBase(tenantId: string): Promise<KnowledgeBaseData> {
-  try {
-    // Fetch knowledge items
-    const knowledgeResults = await query('knowledgeitems')
-      .eq('isActive', true)
-      .limit(100)
-      .find();
-
-    // Fetch FAQs
-    const faqResults = await query('faqs')
-      .eq('isPublished', true)
-      .limit(100)
-      .find();
-
-    // Fetch policies
-    const policiesResults = await query('policies')
-      .eq('isActive', true)
-      .limit(50)
-      .find();
-
-    return {
-      items: knowledgeResults.items || [],
-      faqs: faqResults.items || [],
-      policies: policiesResults.items || []
-    };
-  } catch (error) {
-    console.error('Error fetching knowledge base:', error);
-    throw new Error(`Failed to fetch knowledge base: ${error.message}`);
-  }
-}
-
-/**
  * Builds comprehensive AI context
- * Aggregates customer 360 and knowledge base data
+ * Orchestrates data aggregation from canonical services:
+ * - Customer 360 (customer data, interactions, opportunities, follow-ups)
+ * - Complete Knowledge Base (products, services, FAQs, policies, business hours, AI rules)
+ * 
+ * @param customerId - The customer ID to fetch context for
+ * @param authContext - Authentication context with tenant isolation
+ * @returns Aggregated AI context data
  */
 async function buildAIContext(
   customerId: string,
   authContext: AuthContext
 ): Promise<AIContextData> {
   try {
-    // Fetch customer 360 data
-    const customer360 = await getCustomer360Data(customerId, authContext.tenantId);
+    // Fetch customer 360 data using canonical service
+    const customer360 = await getCustomer360(customerId, authContext);
 
     if (!customer360) {
       throw new Error(`Customer not found or unauthorized: ${customerId}`);
     }
 
-    // Fetch knowledge base
-    const knowledgeBase = await getCompleteKnowledgeBase(authContext.tenantId);
+    // Fetch complete knowledge base using canonical service
+    const knowledgeBase = await getCompleteKnowledgeBase(authContext);
 
     return {
       customer: customer360,
@@ -199,20 +90,13 @@ async function buildAIContext(
  * Main HTTP handler for AI context endpoint
  * POST /ai-context
  * Body: { customerId: string }
+ * 
+ * Orchestrates data aggregation from canonical services
  */
 export async function post_aiContext(request: any) {
   try {
     // Validate authentication and authorization
-    const authContext = await validateAuthContext(request);
-
-    if (!authContext.isAuthorized) {
-      return forbidden({
-        body: {
-          error: 'Unauthorized access',
-          message: 'You do not have permission to access AI context'
-        }
-      });
-    }
+    const authContext = await validateAuthContext();
 
     // Parse request body
     const body = request.body ? JSON.parse(request.body) : {};
@@ -227,7 +111,7 @@ export async function post_aiContext(request: any) {
       });
     }
 
-    // Build AI context
+    // Build AI context using orchestration function
     const aiContext = await buildAIContext(customerId, authContext);
 
     return ok({
@@ -235,7 +119,7 @@ export async function post_aiContext(request: any) {
         success: true,
         data: aiContext,
         memberId: authContext.memberId,
-        tenantId: authContext.tenantId
+        businessId: authContext.businessId
       }
     });
   } catch (error) {
@@ -271,18 +155,12 @@ export async function post_aiContext(request: any) {
 /**
  * Endpoint to get customer 360 data only
  * GET /customer-360?customerId=<id>
+ * 
+ * Delegates to canonical getCustomer360 service
  */
 export async function get_customer360(request: any) {
   try {
-    const authContext = await validateAuthContext(request);
-
-    if (!authContext.isAuthorized) {
-      return forbidden({
-        body: {
-          error: 'Unauthorized access'
-        }
-      });
-    }
+    const authContext = await validateAuthContext();
 
     const url = new URL(request.url);
     const customerId = url.searchParams.get('customerId');
@@ -295,7 +173,8 @@ export async function get_customer360(request: any) {
       });
     }
 
-    const customer360 = await getCustomer360Data(customerId, authContext.tenantId);
+    // Use canonical getCustomer360 service
+    const customer360 = await getCustomer360(customerId, authContext);
 
     if (!customer360) {
       return notFound({
@@ -324,20 +203,15 @@ export async function get_customer360(request: any) {
 /**
  * Endpoint to get knowledge base only
  * GET /knowledge-base
+ * 
+ * Delegates to canonical getCompleteKnowledgeBase service
  */
 export async function get_knowledgeBase(request: any) {
   try {
-    const authContext = await validateAuthContext(request);
+    const authContext = await validateAuthContext();
 
-    if (!authContext.isAuthorized) {
-      return forbidden({
-        body: {
-          error: 'Unauthorized access'
-        }
-      });
-    }
-
-    const knowledgeBase = await getCompleteKnowledgeBase(authContext.tenantId);
+    // Use canonical getCompleteKnowledgeBase service
+    const knowledgeBase = await getCompleteKnowledgeBase(authContext);
 
     return ok({
       body: {
@@ -359,10 +233,12 @@ export async function get_knowledgeBase(request: any) {
  * Endpoint to validate context access
  * POST /validate-context-access
  * Body: { customerId: string }
+ * 
+ * Uses orchestration function to validate access
  */
 export async function post_validateContextAccess(request: any) {
   try {
-    const authContext = await validateAuthContext(request);
+    const authContext = await validateAuthContext();
     const body = request.body ? JSON.parse(request.body) : {};
     const { customerId } = body;
 
@@ -374,21 +250,16 @@ export async function post_validateContextAccess(request: any) {
       });
     }
 
-    // Check if customer exists and belongs to tenant
-    const customerResults = await query('customers')
-      .eq('_id', customerId)
-      .eq('businessId', authContext.tenantId)
-      .limit(1)
-      .find();
-
-    const hasAccess = customerResults.items && customerResults.items.length > 0;
+    // Attempt to fetch customer 360 - if successful, access is granted
+    const customer360 = await getCustomer360(customerId, authContext);
+    const hasAccess = customer360 !== null;
 
     return ok({
       body: {
         success: true,
         hasAccess,
         memberId: authContext.memberId,
-        tenantId: authContext.tenantId
+        businessId: authContext.businessId
       }
     });
   } catch (error) {
