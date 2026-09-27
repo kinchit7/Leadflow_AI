@@ -5,73 +5,86 @@ import Footer from '@/components/Footer';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { TrendingUp, TrendingDown, Users, DollarSign, Ticket, Clock } from 'lucide-react';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getInsightsMetrics } from '@/backend/insights-service.web';
 
 export default function InsightsPage() {
   const { member } = useMember();
+  const { executeWithAuth } = useBackendService();
   const [isLoading, setIsLoading] = useState(true);
-  const [metrics, setMetrics] = useState([
-    {
-      title: 'Total Leads',
-      value: '0',
-      change: '+0%',
-      trend: 'up',
-      icon: TrendingUp,
-    },
-    {
-      title: 'Qualified Leads',
-      value: '0',
-      change: '+0%',
-      trend: 'up',
-      icon: TrendingUp,
-    },
-    {
-      title: 'Won Deals',
-      value: '0',
-      change: '+0%',
-      trend: 'up',
-      icon: TrendingUp,
-    },
-    {
-      title: 'Lost Deals',
-      value: '0',
-      change: '+0%',
-      trend: 'down',
-      icon: TrendingDown,
-    },
-    {
-      title: 'Open Opportunities',
-      value: '0',
-      change: '+0%',
-      trend: 'up',
-      icon: Users,
-    },
-    {
-      title: 'Pipeline Value',
-      value: '$0',
-      change: '+0%',
-      trend: 'up',
-      icon: DollarSign,
-    },
-    {
-      title: 'Follow-ups',
-      value: '0',
-      change: '+0%',
-      trend: 'up',
-      icon: Clock,
-    },
-    {
-      title: 'Support Issues',
-      value: '0',
-      change: '+0%',
-      trend: 'down',
-      icon: Ticket,
-    },
-  ]);
+  const [metrics, setMetrics] = useState<any[]>([]);
 
   useEffect(() => {
-    // TODO: Load real metrics from backend
-    setIsLoading(false);
+    loadMetrics();
   }, [member]);
+
+  const loadMetrics = async () => {
+    setIsLoading(true);
+    const result = await executeWithAuth(async (auth) => {
+      return await getInsightsMetrics(auth);
+    });
+    if (result) {
+      setMetrics([
+        {
+          title: 'Total Leads',
+          value: result.leads.total.toString(),
+          change: '+0%',
+          trend: 'up',
+          icon: TrendingUp,
+        },
+        {
+          title: 'Qualified Leads',
+          value: (result.leads.byStage['Qualified'] || 0).toString(),
+          change: '+0%',
+          trend: 'up',
+          icon: TrendingUp,
+        },
+        {
+          title: 'Won Deals',
+          value: (result.opportunities.byStage['Won'] || 0).toString(),
+          change: '+0%',
+          trend: 'up',
+          icon: TrendingUp,
+        },
+        {
+          title: 'Lost Deals',
+          value: (result.opportunities.byStage['Lost'] || 0).toString(),
+          change: '+0%',
+          trend: 'down',
+          icon: TrendingDown,
+        },
+        {
+          title: 'Open Opportunities',
+          value: (result.opportunities.total - (result.opportunities.byStage['Won'] || 0) - (result.opportunities.byStage['Lost'] || 0)).toString(),
+          change: '+0%',
+          trend: 'up',
+          icon: Users,
+        },
+        {
+          title: 'Pipeline Value',
+          value: `₹${(result.opportunities.totalValue / 100000).toFixed(1)}L`,
+          change: '+0%',
+          trend: 'up',
+          icon: DollarSign,
+        },
+        {
+          title: 'Follow-ups',
+          value: result.followups.total.toString(),
+          change: `${result.followups.completionRate.toFixed(0)}% complete`,
+          trend: 'up',
+          icon: Clock,
+        },
+        {
+          title: 'Support Issues',
+          value: result.support.openCount.toString(),
+          change: '+0%',
+          trend: 'down',
+          icon: Ticket,
+        },
+      ]);
+    }
+    setIsLoading(false);
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">

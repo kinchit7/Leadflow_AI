@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BaseCrudService } from '@/integrations';
 import { SupportTickets } from '@/entities';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -20,9 +19,12 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Ticket } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getSupportTicketsForBusiness, createSupportTicketAuthorized, updateSupportTicketAuthorized } from '@/backend/support-service.web';
 
 export default function SupportPage() {
   const [searchParams] = useSearchParams();
+  const { executeWithAuth } = useBackendService();
   const [tickets, setTickets] = useState<SupportTickets[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -43,33 +45,30 @@ export default function SupportPage() {
 
   const loadTickets = async () => {
     setIsLoading(true);
-    try {
-      const result = await BaseCrudService.getAll<SupportTickets>('tickets');
+    const result = await executeWithAuth(async (auth) => {
+      return await getSupportTicketsForBusiness(auth);
+    });
+    if (result) {
       setTickets(result.items);
-    } catch (error) {
-      console.error('Error loading tickets:', error);
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await BaseCrudService.create('tickets', {
-        _id: crypto.randomUUID(),
+    const result = await executeWithAuth(async (auth) => {
+      return await createSupportTicketAuthorized({
         customerName: formData.customerName,
         issueDescription: formData.issueDescription,
         status: 'Open',
         priority: formData.priority,
         assignedTo: formData.assignedTo,
-        createdAt: new Date().toISOString(),
-      });
+      }, auth);
+    });
+    if (result) {
       setIsCreateDialogOpen(false);
       resetForm();
       loadTickets();
-    } catch (error) {
-      console.error('Error creating ticket:', error);
     }
   };
 
@@ -107,6 +106,15 @@ export default function SupportPage() {
         return 'bg-secondary text-secondary-foreground';
       default:
         return 'bg-muted-grey text-muted-grey-foreground';
+    }
+  };
+
+  const handleUpdateStatus = async (ticketId: string, newStatus: string) => {
+    const result = await executeWithAuth(async (auth) => {
+      return await updateSupportTicketAuthorized(ticketId, { status: newStatus }, auth);
+    });
+    if (result) {
+      loadTickets();
     }
   };
 
@@ -162,6 +170,19 @@ export default function SupportPage() {
                     {new Date(ticket.createdAt).toLocaleDateString('en-IN')}
                   </Badge>
                 )}
+              </div>
+              <div className="flex gap-1 mt-3 pt-3 border-t border-gray-200">
+                {['Open', 'Waiting', 'Escalated', 'Resolved'].map((status) => (
+                  <Button
+                    key={status}
+                    size="sm"
+                    variant={ticket.status === status ? 'default' : 'outline'}
+                    onClick={() => handleUpdateStatus(ticket._id, status)}
+                    className={ticket.status === status ? 'bg-primary text-primary-foreground' : ''}
+                  >
+                    {status}
+                  </Button>
+                ))}
               </div>
             </Card>
           </motion.div>

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { BaseCrudService } from '@/integrations';
 import { Followups } from '@/entities';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -20,9 +19,12 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Clock, CheckCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getFollowupsForBusiness, createFollowupAuthorized, updateFollowupAuthorized } from '@/backend/followups-service.web';
 
 export default function FollowUpsPage() {
   const [searchParams] = useSearchParams();
+  const { executeWithAuth } = useBackendService();
   const [followups, setFollowups] = useState<Followups[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -45,35 +47,32 @@ export default function FollowUpsPage() {
 
   const loadFollowups = async () => {
     setIsLoading(true);
-    try {
-      const result = await BaseCrudService.getAll<Followups>('followups');
+    const result = await executeWithAuth(async (auth) => {
+      return await getFollowupsForBusiness(auth);
+    });
+    if (result) {
       setFollowups(result.items);
-    } catch (error) {
-      console.error('Error loading follow-ups:', error);
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
 
   const handleCreateFollowup = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await BaseCrudService.create('followups', {
-        _id: crypto.randomUUID(),
+    const result = await executeWithAuth(async (auth) => {
+      return await createFollowupAuthorized({
         title: formData.title,
-        dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : undefined,
+        dueDate: formData.dueDate ? new Date(formData.dueDate) : undefined,
         status: 'Pending',
         relatedRecordType: formData.relatedRecordType,
         relatedRecordId: formData.relatedRecordId,
         owner: formData.owner,
         notes: formData.notes,
-        createdAt: new Date().toISOString(),
-      });
+      }, auth);
+    });
+    if (result) {
       setIsCreateDialogOpen(false);
       resetForm();
       loadFollowups();
-    } catch (error) {
-      console.error('Error creating follow-up:', error);
     }
   };
 
@@ -175,11 +174,14 @@ export default function FollowUpsPage() {
                   variant="ghost"
                   size="icon"
                   onClick={async () => {
-                    await BaseCrudService.update('followups', {
-                      _id: followup._id,
-                      status: followup.status === 'Completed' ? 'Pending' : 'Completed',
+                    const result = await executeWithAuth(async (auth) => {
+                      return await updateFollowupAuthorized(followup._id, {
+                        status: followup.status === 'Completed' ? 'Pending' : 'Completed',
+                      }, auth);
                     });
-                    loadFollowups();
+                    if (result) {
+                      loadFollowups();
+                    }
                   }}
                 >
                   <CheckCircle2

@@ -7,9 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { AlertCircle, TrendingUp, Clock, Users, Ticket, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useBackendService } from '@/hooks/useBackendService';
+import { getTodayDashboard } from '@/backend/today-service.web';
 
 export default function TodayPage() {
   const { member } = useMember();
+  const { executeWithAuth } = useBackendService();
   const [mounted, setMounted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [metrics, setMetrics] = useState({
@@ -22,10 +25,25 @@ export default function TodayPage() {
 
   useEffect(() => {
     setMounted(true);
-    // TODO: Load real metrics from backend
-    // For now, show placeholder
-    setIsLoading(false);
+    loadDashboard();
   }, [member]);
+
+  const loadDashboard = async () => {
+    setIsLoading(true);
+    const result = await executeWithAuth(async (auth) => {
+      return await getTodayDashboard(auth);
+    });
+    if (result) {
+      setMetrics({
+        hotLeads: result.highPriorityLeads.length,
+        followupsDueToday: result.followupsDueToday.length,
+        overdueFollowups: result.overdueFollowups.length,
+        openOpportunities: result.opportunitiesWithoutAction.length,
+        openTickets: result.unresolvedTickets.length,
+      });
+    }
+    setIsLoading(false);
+  };
 
   const operationalCards = [
     {

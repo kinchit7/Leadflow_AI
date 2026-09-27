@@ -15,6 +15,7 @@ import LeadsPage from '@/components/pages/LeadsPage';
 import LeadDetailPage from '@/components/pages/LeadDetailPage';
 import CustomersPage from '@/components/pages/CustomersPage';
 import CustomerDetailPage from '@/components/pages/CustomerDetailPage';
+import OpportunitiesPage from '@/components/pages/OpportunitiesPage';
 import FollowUpsPage from '@/components/pages/FollowUpsPage';
 import SupportPage from '@/components/pages/SupportPage';
 import InsightsPage from '@/components/pages/InsightsPage';
@@ -112,6 +113,14 @@ const router = createBrowserRouter([
         element: (
           <MemberProtectedRoute>
             <CustomerDetailPage />
+          </MemberProtectedRoute>
+        ),
+      },
+      {
+        path: "opportunities",
+        element: (
+          <MemberProtectedRoute>
+            <OpportunitiesPage />
           </MemberProtectedRoute>
         ),
       },
