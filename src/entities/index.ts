@@ -143,6 +143,27 @@ export interface Businesses {
 
 
 /**
+ * Collection ID: businessmembers
+ * Interface for BusinessMembers
+ */
+export interface BusinessMembers {
+  _id: string;
+  _createdDate?: Date;
+  _updatedDate?: Date;
+  /** @wixFieldType text */
+  memberId?: string;
+  /** @wixFieldType text */
+  businessId?: string;
+  /** @wixFieldType text */
+  branchId?: string;
+  /** @wixFieldType text */
+  role?: string;
+  /** @wixFieldType text */
+  status?: string;
+}
+
+
+/**
  * Collection ID: channels
  * Interface for Channels
  */

@@ -17,10 +17,11 @@ export interface AuthContext {
 /**
  * Resolve authenticated user context from server-side session
  * PRODUCTION-GRADE TENANT MAPPING:
- * - Never trust tenantId/businessId from browser - resolve from member
- * - Validates member exists and has valid business association
- * - Returns null if not authenticated or tenant mapping fails
+ * - Never trust tenantId/businessId from browser - resolve from authoritative BusinessMembers collection
+ * - Validates member exists and has active business association
+ * - Returns null if not authenticated, membership not found, or status != 'active'
  * - Implements deny-by-default security model
+ * - Extracts businessId, branchId, and role from authoritative BusinessMembers record
  * 
  * @param memberId - Member ID from authenticated session
  * @returns AuthContext with validated tenant mapping or null
@@ -32,30 +33,56 @@ export async function resolveAuthContext(memberId: string): Promise<AuthContext 
       return null;
     }
 
-    // PRODUCTION: Resolve businessId from member's business association
-    // This should query a members-to-business mapping table
-    // For now, use a deterministic business ID based on member
-    // In production, this would be:
-    // const memberBusiness = await getMemberBusinessAssociation(memberId);
-    // if (!memberBusiness) return null;
-    // const businessId = memberBusiness.businessId;
-    
-    const businessId = `business-${memberId}`;
-    
-    // Validate tenant mapping
+    // Query authoritative BusinessMembers collection for member's business association
+    const membershipResult = await BaseCrudService.getAll<any>(
+      'businessmembers',
+      {},
+      { limit: 100 }
+    );
+
+    if (!membershipResult || !membershipResult.items) {
+      console.warn(`resolveAuthContext: Failed to query BusinessMembers collection`);
+      return null;
+    }
+
+    // Find active membership for this member
+    // Note: If multiple active memberships exist, this is an architecture gap
+    // The application should implement legitimate business/branch selection mechanism
+    const activeMembership = membershipResult.items.find(
+      (m: any) => m.memberId === memberId && m.status === 'active'
+    );
+
+    if (!activeMembership) {
+      console.warn(
+        `resolveAuthContext: No active membership found for member ${memberId}. ` +
+        `Possible states: pending, suspended, revoked, or missing membership.`
+      );
+      return null;
+    }
+
+    // Extract authoritative values from BusinessMembers record
+    const businessId = activeMembership.businessId;
+    const branchId = activeMembership.branchId;
+    const role = activeMembership.role;
+
     if (!businessId) {
-      console.warn(`resolveAuthContext: Failed to resolve business for member ${memberId}`);
+      console.warn(
+        `resolveAuthContext: Active membership found but businessId is missing for member ${memberId}`
+      );
       return null;
     }
 
     const authContext: AuthContext = {
       memberId,
       businessId,
-      branchId: undefined,
-      role: undefined,
+      branchId,
+      role,
     };
 
-    console.debug(`resolveAuthContext: Resolved context for member ${memberId} -> business ${businessId}`);
+    console.debug(
+      `resolveAuthContext: Resolved context for member ${memberId} -> business ${businessId}, ` +
+      `branch ${branchId || 'none'}, role ${role || 'none'}`
+    );
     return authContext;
   } catch (error) {
     console.error('Failed to resolve auth context:', error);
