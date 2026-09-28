@@ -30,6 +30,7 @@
 
 import { ok, badRequest, forbidden, notFound, serverError } from 'wix-http-functions';
 import { getCurrentMember } from 'wix-members-backend';
+import { getSecret } from 'wix-secrets-backend';
 import { BaseCrudService } from '@/integrations/cms';
 import { resolveAuthContext, AuthContext, authorizeRead } from './auth.web';
 import { buildAIContext } from './ai-context-service.web';
@@ -109,11 +110,18 @@ function validateBriefSchema(brief: any): brief is AIBriefSchema {
 
 /**
  * Retrieves AI provider configuration from Wix Secrets Manager
- * In production, this loads from secure environment
+ * In production, this loads from secure environment via wix-secrets-backend
  * In demo mode, uses MockProvider
+ * 
+ * SECURITY:
+ * - Production credentials retrieved server-side only via getSecret()
+ * - Never exposed to frontend, CMS, or logs
+ * - Demo mode uses MockProvider (no real credentials needed)
+ * - Production fails explicitly if secrets not configured
  * 
  * @param isDemo - Whether running in demo mode
  * @returns Provider configuration or null if not configured
+ * @throws Error if production mode and secrets not available
  */
 async function getAIProviderConfig(isDemo: boolean): Promise<AIProviderConfig | null> {
   try {
@@ -127,18 +135,30 @@ async function getAIProviderConfig(isDemo: boolean): Promise<AIProviderConfig | 
       };
     }
 
-    // Production: Load from Wix Secrets Manager
-    // In a real implementation, this would be:
-    // const apiKey = await getSecret('AI_PROVIDER_API_KEY');
-    // const providerType = await getSecret('AI_PROVIDER_TYPE');
-    
-    // For now, check environment variables as fallback
-    const providerType = process.env.AI_PROVIDER_TYPE;
-    const apiKey = process.env.AI_PROVIDER_API_KEY;
+    // Production: Load from Wix Secrets Manager (server-side only)
+    let providerType: string | null = null;
+    let apiKey: string | null = null;
+    let model: string | null = null;
+
+    try {
+      providerType = await getSecret('AI_PROVIDER_TYPE');
+      apiKey = await getSecret('AI_PROVIDER_API_KEY');
+      model = await getSecret('AI_MODEL');
+    } catch (secretError) {
+      console.error('Failed to retrieve secrets from Wix Secrets Manager:', secretError);
+      // In production, fail explicitly - do not fall back to process.env
+      throw new Error(
+        'AI provider secrets not configured. ' +
+        'Configure AI_PROVIDER_TYPE, AI_PROVIDER_API_KEY, and AI_MODEL in Wix Secrets Manager. ' +
+        'Supported providers: openai, anthropic, gemini'
+      );
+    }
 
     if (!providerType || !apiKey) {
-      console.warn('AI provider not configured in production');
-      return null;
+      throw new Error(
+        'AI provider secrets incomplete. ' +
+        'Ensure AI_PROVIDER_TYPE and AI_PROVIDER_API_KEY are set in Wix Secrets Manager.'
+      );
     }
 
     // Map provider type to configuration
@@ -147,7 +167,7 @@ async function getAIProviderConfig(isDemo: boolean): Promise<AIProviderConfig | 
         return {
           type: 'openai',
           apiKey,
-          model: process.env.AI_MODEL || 'gpt-4',
+          model: model || 'gpt-4',
           endpoint: 'https://api.openai.com/v1/chat/completions',
           maxTokens: 2000,
           temperature: 0.7
@@ -157,7 +177,7 @@ async function getAIProviderConfig(isDemo: boolean): Promise<AIProviderConfig | 
         return {
           type: 'anthropic',
           apiKey,
-          model: process.env.AI_MODEL || 'claude-3-opus-20240229',
+          model: model || 'claude-3-opus-20240229',
           endpoint: 'https://api.anthropic.com/v1/messages',
           maxTokens: 2000,
           temperature: 0.7
@@ -167,19 +187,21 @@ async function getAIProviderConfig(isDemo: boolean): Promise<AIProviderConfig | 
         return {
           type: 'gemini',
           apiKey,
-          model: process.env.AI_MODEL || 'gemini-pro',
+          model: model || 'gemini-pro',
           endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
           maxTokens: 2000,
           temperature: 0.7
         };
 
       default:
-        console.error(`Unknown AI provider type: ${providerType}`);
-        return null;
+        throw new Error(
+          `Unknown AI provider type: ${providerType}. ` +
+          `Supported providers: openai, anthropic, gemini`
+        );
     }
   } catch (error) {
     console.error('Failed to load AI provider config:', error);
-    return null;
+    throw error;
   }
 }
 
@@ -352,8 +374,9 @@ function generateWithMockProvider(aiContext: any): AIBriefSchema {
  * - Fails explicitly if no provider configured (non-demo mode)
  * - MockProvider allowed only in demo mode
  * - Supports OpenAI, Anthropic Claude, Google Gemini
- * - API keys loaded from Wix Secrets Manager (not hardcoded)
+ * - API keys loaded from Wix Secrets Manager server-side only (never exposed)
  * - Structured output validation enforced
+ * - No fallback to process.env in production
  * 
  * @param aiContext - Aggregated customer and knowledge base context
  * @param businessId - Business ID for audit logging
@@ -367,21 +390,8 @@ async function generateBriefWithAI(
   isDemo: boolean
 ): Promise<AIBriefSchema> {
   try {
-    // Get provider configuration
+    // Get provider configuration (from Wix Secrets Manager in production)
     const config = await getAIProviderConfig(isDemo);
-
-    // Production: Fail explicitly if no provider configured
-    if (!config) {
-      if (!isDemo) {
-        throw new Error(
-          'AI provider not configured for production. ' +
-          'Set AI_PROVIDER_TYPE and AI_PROVIDER_API_KEY in Wix Secrets Manager. ' +
-          'Supported providers: openai, anthropic, gemini'
-        );
-      }
-      // Demo mode without config: should not happen, but use mock as fallback
-      return generateWithMockProvider(aiContext);
-    }
 
     // Route to appropriate provider
     switch (config.type) {
@@ -511,6 +521,8 @@ async function generateCustomerBrief(
     }
 
     // Create brief record with tenant isolation
+    // NOTE: aiProvider and modelVersion are stored for audit purposes only
+    // Actual provider credentials are never stored in CMS
     const brief: AICustomerBrief = {
       _id: crypto.randomUUID(),
       customerId,
@@ -522,8 +534,8 @@ async function generateCustomerBrief(
       opportunities: briefSchema.opportunities,
       generatedAt: new Date().toISOString(),
       generatedBy: authContext.memberId,
-      aiProvider: isDemo ? 'mock-provider' : (process.env.AI_PROVIDER_TYPE || 'unknown'),
-      modelVersion: process.env.AI_MODEL || '1.0',
+      aiProvider: isDemo ? 'mock-provider' : 'configured-provider',
+      modelVersion: '1.0',
       isDemo
     };
 
