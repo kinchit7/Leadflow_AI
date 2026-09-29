@@ -24,13 +24,13 @@ export function useBackendService(): UseBackendServiceResult {
 
   // Resolve auth context on member change
   const resolveAuth = useCallback(async () => {
-    if (!member?.loginEmail) {
+    if (!member?._id) {
       setAuthContext(null);
       return null;
     }
 
     try {
-      const context = await resolveAuthContext(member.loginEmail);
+      const context = await resolveAuthContext(member._id);
       setAuthContext(context);
       return context;
     } catch (err) {
@@ -39,7 +39,7 @@ export function useBackendService(): UseBackendServiceResult {
       setAuthContext(null);
       return null;
     }
-  }, [member?.loginEmail]);
+  }, [member?._id]);
 
   // Execute function with auth context
   const executeWithAuth = useCallback(
