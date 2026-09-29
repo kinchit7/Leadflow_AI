@@ -1,0 +1,67 @@
+
+name: LeadFlow AI Workstream 1 Tests
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/backend/**"
+      - "package.json"
+      - "vitest.config.ts"
+      - "vitest.setup.ts"
+      - ".github/workflows/workstream1-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run Workstream 1 test suites
+        shell: bash
+        run: |
+          set +e
+          failed=0
+
+          for suite in \
+            src/backend/__tests__/workstream1-integration.test.ts \
+            src/backend/__tests__/context-integrity.test.ts \
+            src/backend/__tests__/regression.test.ts \
+            src/backend/__tests__/auth.test.ts
+          do
+            echo "::group::Testing $suite"
+            npm run test:run -- "$suite"
+            result=$?
+            echo "EXIT_CODE=$result SUITE=$suite"
+            echo "::endgroup::"
+
+            if [ "$result" -ne 0 ]; then
+              failed=1
+            fi
+          done
+
+          echo "::group::Full test suite"
+          npm run test:run
+          result=$?
+          echo "FULL_SUITE_EXIT_CODE=$result"
+          echo "::endgroup::"
+
+          if [ "$result" -ne 0 ]; then
+            failed=1
+          fi
+
+          exit "$failed"
