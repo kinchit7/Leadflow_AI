@@ -3,7 +3,7 @@
  * Catches and displays errors with user-friendly messages
  */
 
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
