@@ -5,7 +5,7 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { Customers } from '@/entities';
-import { AuthContext, authorizeRead, authorizeWrite } from './auth.web';
+import { AuthContext, authorizeRead, authorizeWrite, validatePaginationParams } from './auth.web';
 import { logCustomerCreated, logCustomerUpdated } from './activity-events.web';
 
 /**
@@ -38,7 +38,13 @@ export async function getCustomersForBusiness(
   skip: number = 0
 ): Promise<{ items: Customers[]; totalCount: number; hasNext: boolean }> {
   try {
-    const result = await BaseCrudService.getAll<Customers>('customers', [], { limit, skip });
+    // PHASE 3F-B: Validate and cap pagination parameters
+    const { limit: validatedLimit, skip: validatedSkip } = validatePaginationParams(limit, skip);
+
+    const result = await BaseCrudService.getAll<Customers>('customers', [], { 
+      limit: validatedLimit, 
+      skip: validatedSkip 
+    });
     
     const items = result.items
       ?.filter(customer => customer.businessId === authContext.businessId)

@@ -13,6 +13,13 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { BusinessMembers } from '@/entities';
+import { 
+  logAuthorizationFailure, 
+  logCrossTenantAccessAttempt, 
+  logBranchAuthorizationFailure,
+  logMultipleMembershipDetected,
+  logProtectedFieldOverrideAttempt 
+} from './audit-service.web';
 
 export interface AuthContext {
   memberId: string;
@@ -26,6 +33,17 @@ export interface AuthContext {
  */
 export const VALID_ROLES = ['owner', 'admin', 'manager', 'sales', 'support', 'guest'] as const;
 export type UserRole = typeof VALID_ROLES[number];
+
+/**
+ * PHASE 3F-B: Maximum page size enforcement
+ * Prevents pagination bypass attacks and resource exhaustion
+ * - MAX_PAGE_SIZE: Maximum records per request (100)
+ * - MAX_SKIP: Maximum offset to prevent full enumeration (10000)
+ * - MIN_PAGE_SIZE: Minimum records per request (1)
+ */
+export const MAX_PAGE_SIZE = 100;
+export const MAX_SKIP = 10000;
+export const MIN_PAGE_SIZE = 1;
 
 /**
  * Permission matrix: role -> allowed actions
@@ -101,6 +119,8 @@ export async function resolveAuthContext(memberId: string): Promise<AuthContext 
         `resolveAuthContext: Member ${memberId} has ${activeMemberships.length} active memberships. ` +
         `Ambiguous context. Requires explicit business selection. Denying access.`
       );
+      // PHASE 3F-B: Log multiple membership detection
+      await logMultipleMembershipDetected(memberId, activeMemberships.length);
       return null;
     }
 
@@ -168,12 +188,30 @@ export async function authorizeRead(
     const record = await BaseCrudService.getById(collectionId, recordId);
     if (!record) {
       console.debug(`authorizeRead: Record not found - ${collectionId}:${recordId}`);
+      // PHASE 3F-B: Log authorization failure
+      await logAuthorizationFailure(
+        collectionId,
+        recordId,
+        authContext.memberId,
+        authContext.businessId,
+        'Record not found',
+        'LOW'
+      );
       return false;
     }
 
     const recordBusinessId = (record as any).businessId || (record as any).tenantId;
     if (!recordBusinessId) {
       console.warn(`authorizeRead: Record missing businessId/tenantId - ${collectionId}:${recordId}`);
+      // PHASE 3F-B: Log authorization failure
+      await logAuthorizationFailure(
+        collectionId,
+        recordId,
+        authContext.memberId,
+        authContext.businessId,
+        'Record missing businessId/tenantId',
+        'MEDIUM'
+      );
       return false;
     }
 
@@ -181,6 +219,14 @@ export async function authorizeRead(
     if (recordBusinessId !== authContext.businessId) {
       console.warn(
         `authorizeRead: Tenant mismatch - record business ${recordBusinessId} != auth business ${authContext.businessId}`
+      );
+      // PHASE 3F-B: Log cross-tenant access attempt
+      await logCrossTenantAccessAttempt(
+        collectionId,
+        recordId,
+        recordBusinessId,
+        authContext.businessId,
+        authContext.memberId
       );
       return false;
     }
@@ -191,6 +237,15 @@ export async function authorizeRead(
       if (!authorizeBranchAccess(authContext, recordBranchId)) {
         console.warn(
           `authorizeRead: Branch mismatch - record branch ${recordBranchId} != user branch ${authContext.branchId}`
+        );
+        // PHASE 3F-B: Log branch authorization failure
+        await logBranchAuthorizationFailure(
+          collectionId,
+          recordId,
+          recordBranchId,
+          authContext.branchId,
+          authContext.memberId,
+          authContext.businessId
         );
         return false;
       }
@@ -406,9 +461,74 @@ export function sanitizeUpdatePayload(
       console.warn(
         `sanitizeUpdatePayload: Attempted override of protected field '${field}' by member ${authContext.memberId}`
       );
+      // PHASE 3F-B: Log protected field override attempt (async, non-blocking)
+      logProtectedFieldOverrideAttempt(
+        authContext.memberId,
+        authContext.businessId,
+        field,
+        'unknown' // collectionId not available in this context
+      ).catch(err => console.error('Failed to log protected field override:', err));
+      
       delete sanitized[field];
     }
   }
 
   return sanitized;
+}
+
+/**
+ * PHASE 3F-B: Validate and cap pagination parameters
+ * Enforces maximum page size to prevent:
+ * - Pagination bypass attacks (requesting all records at once)
+ * - Resource exhaustion (fetching excessive data)
+ * - Memory exhaustion (processing large result sets)
+ * 
+ * Validation rules:
+ * - limit: capped to MAX_PAGE_SIZE (100), minimum MIN_PAGE_SIZE (1)
+ * - skip: capped to MAX_SKIP (10000), minimum 0
+ * - Rejects negative, zero, fractional, NaN, or Infinity values
+ * - Logs invalid inputs for audit trail
+ * 
+ * @param limit - Requested page size (default 50)
+ * @param skip - Requested offset (default 0)
+ * @returns Validated { limit, skip } object
+ */
+export function validatePaginationParams(
+  limit: number = 50,
+  skip: number = 0
+): { limit: number; skip: number } {
+  // Validate limit
+  let validatedLimit = limit;
+  
+  if (!Number.isInteger(limit) || limit < MIN_PAGE_SIZE) {
+    console.warn(
+      `validatePaginationParams: Invalid limit ${limit} (not integer or < ${MIN_PAGE_SIZE}), using MIN_PAGE_SIZE`
+    );
+    validatedLimit = MIN_PAGE_SIZE;
+  } else if (limit > MAX_PAGE_SIZE) {
+    console.warn(
+      `validatePaginationParams: Limit ${limit} exceeds MAX_PAGE_SIZE ${MAX_PAGE_SIZE}, capping`
+    );
+    validatedLimit = MAX_PAGE_SIZE;
+  }
+
+  // Validate skip
+  let validatedSkip = skip;
+  
+  if (!Number.isInteger(skip) || skip < 0) {
+    console.warn(
+      `validatePaginationParams: Invalid skip ${skip} (not integer or negative), using 0`
+    );
+    validatedSkip = 0;
+  } else if (skip > MAX_SKIP) {
+    console.warn(
+      `validatePaginationParams: Skip ${skip} exceeds MAX_SKIP ${MAX_SKIP}, capping`
+    );
+    validatedSkip = MAX_SKIP;
+  }
+
+  return {
+    limit: validatedLimit,
+    skip: validatedSkip,
+  };
 }

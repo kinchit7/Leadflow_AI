@@ -5,7 +5,7 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { SupportTickets } from '@/entities';
-import { AuthContext, authorizeRead, authorizeWrite } from './auth.web';
+import { AuthContext, authorizeRead, authorizeWrite, validatePaginationParams } from './auth.web';
 import { logSupportTicketCreated, logSupportStatusChanged } from './activity-events.web';
 
 /**
@@ -38,7 +38,13 @@ export async function getSupportTicketsForBusiness(
   skip: number = 0
 ): Promise<{ items: SupportTickets[]; totalCount: number; hasNext: boolean }> {
   try {
-    const result = await BaseCrudService.getAll<SupportTickets>('tickets', [], { limit, skip });
+    // PHASE 3F-B: Validate and cap pagination parameters
+    const { limit: validatedLimit, skip: validatedSkip } = validatePaginationParams(limit, skip);
+
+    const result = await BaseCrudService.getAll<SupportTickets>('tickets', [], { 
+      limit: validatedLimit, 
+      skip: validatedSkip 
+    });
     
     const items = result.items
       ?.filter(ticket => ticket.businessId === authContext.businessId)

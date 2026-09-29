@@ -5,7 +5,7 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { Opportunities } from '@/entities';
-import { AuthContext, authorizeRead, authorizeWrite } from './auth.web';
+import { AuthContext, authorizeRead, authorizeWrite, validatePaginationParams } from './auth.web';
 import { calculateOpportunityPriority } from './priority-engine.web';
 import { logOpportunityCreated } from './activity-events.web';
 
@@ -39,7 +39,13 @@ export async function getOpportunitiesForBusiness(
   skip: number = 0
 ): Promise<{ items: Opportunities[]; totalCount: number; hasNext: boolean }> {
   try {
-    const result = await BaseCrudService.getAll<Opportunities>('opportunities', [], { limit, skip });
+    // PHASE 3F-B: Validate and cap pagination parameters
+    const { limit: validatedLimit, skip: validatedSkip } = validatePaginationParams(limit, skip);
+
+    const result = await BaseCrudService.getAll<Opportunities>('opportunities', [], { 
+      limit: validatedLimit, 
+      skip: validatedSkip 
+    });
     
     const items = result.items
       ?.filter(opp => opp.businessId === authContext.businessId)

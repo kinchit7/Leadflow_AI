@@ -5,7 +5,7 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { Followups } from '@/entities';
-import { AuthContext, authorizeRead, authorizeWrite } from './auth.web';
+import { AuthContext, authorizeRead, authorizeWrite, validatePaginationParams } from './auth.web';
 import { logFollowupCreated, logFollowupCompleted, isFollowupOverdue, getDaysUntilDue } from './activity-events.web';
 
 /**
@@ -38,7 +38,13 @@ export async function getFollowupsForBusiness(
   skip: number = 0
 ): Promise<{ items: Followups[]; totalCount: number; hasNext: boolean }> {
   try {
-    const result = await BaseCrudService.getAll<Followups>('followups', [], { limit, skip });
+    // PHASE 3F-B: Validate and cap pagination parameters
+    const { limit: validatedLimit, skip: validatedSkip } = validatePaginationParams(limit, skip);
+
+    const result = await BaseCrudService.getAll<Followups>('followups', [], { 
+      limit: validatedLimit, 
+      skip: validatedSkip 
+    });
     
     const items = result.items
       ?.filter(fu => fu.businessId === authContext.businessId)

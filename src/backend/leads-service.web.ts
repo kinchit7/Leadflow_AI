@@ -5,7 +5,7 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { Leads, Customers } from '@/entities';
-import { AuthContext, authorizeRead, authorizeWrite } from './auth.web';
+import { AuthContext, authorizeRead, authorizeWrite, validatePaginationParams } from './auth.web';
 import { calculateLeadPriority, PriorityResult } from './priority-engine.web';
 import { logLeadCreated, logLeadStageChanged } from './activity-events.web';
 
@@ -39,7 +39,13 @@ export async function getLeadsForBusiness(
   skip: number = 0
 ): Promise<{ items: Leads[]; totalCount: number; hasNext: boolean }> {
   try {
-    const result = await BaseCrudService.getAll<Leads>('leads', [], { limit, skip });
+    // PHASE 3F-B: Validate and cap pagination parameters
+    const { limit: validatedLimit, skip: validatedSkip } = validatePaginationParams(limit, skip);
+
+    const result = await BaseCrudService.getAll<Leads>('leads', [], { 
+      limit: validatedLimit, 
+      skip: validatedSkip 
+    });
     
     const items = result.items
       ?.filter(lead => lead.businessId === authContext.businessId)
