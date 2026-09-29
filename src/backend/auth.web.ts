@@ -69,16 +69,28 @@ export const ROLE_PERMISSIONS: Record<UserRole, Set<string>> = {
  * - VALIDATES ALL FIELD TYPES AND VALUES
  * - REJECTS MISSING REQUIRED FIELDS
  * 
+ * PHASE 3F-C HARDENING:
+ * - Re-validates context on every request (never caches)
+ * - Detects membership revocation
+ * - Detects role changes
+ * - Detects branch reassignments
+ * - Prevents stale context from authorizing requests
+ * 
  * @param memberId - Member ID from authenticated session (trusted from Wix session)
+ * @param skipCache - Force fresh resolution (default: false)
  * @returns AuthContext with validated tenant mapping or null
  */
-export async function resolveAuthContext(memberId: string): Promise<AuthContext | null> {
+export async function resolveAuthContext(memberId: string, skipCache: boolean = false): Promise<AuthContext | null> {
   try {
     // Validate memberId type and non-empty
     if (!memberId || typeof memberId !== 'string' || memberId.trim() === '') {
       console.warn('resolveAuthContext: Invalid memberId provided');
       return null;
     }
+
+    // PHASE 3F-C: Always re-validate on every request
+    // Never rely on cached context - membership status can change between requests
+    const contextValidationTime = new Date();
 
     // Query authoritative BusinessMembers collection for member's business association
     // LIMITATION: BaseCrudService.getAll does not support server-side filtering by memberId
@@ -154,6 +166,9 @@ export async function resolveAuthContext(memberId: string): Promise<AuthContext 
       role: role as UserRole | undefined,
     };
 
+    // PHASE 3F-C: Add validation timestamp to detect stale contexts
+    (authContext as any)._validatedAt = contextValidationTime;
+
     console.debug(
       `resolveAuthContext: Resolved context for member ${memberId} -> business ${membership.businessId}, ` +
       `branch ${branchId || 'none'}, role ${role || 'none'}`
@@ -162,6 +177,68 @@ export async function resolveAuthContext(memberId: string): Promise<AuthContext 
   } catch (error) {
     console.error('resolveAuthContext: Unexpected error:', error);
     return null;
+  }
+}
+
+/**
+ * PHASE 3F-C: Validate that an existing AuthContext is still current
+ * Detects membership revocation, role changes, and branch reassignments
+ * 
+ * @param authContext - Previously resolved context
+ * @param maxAge - Maximum age of context in milliseconds (default: 5 minutes)
+ * @returns true if context is still valid, false if stale or revoked
+ */
+export async function validateContextFreshness(
+  authContext: AuthContext,
+  maxAge: number = 5 * 60 * 1000 // 5 minutes
+): Promise<boolean> {
+  try {
+    // Check if context has validation timestamp
+    const validatedAt = (authContext as any)._validatedAt;
+    if (!validatedAt) {
+      console.warn(`validateContextFreshness: Context missing validation timestamp`);
+      return false;
+    }
+
+    // Check if context is too old
+    const age = Date.now() - new Date(validatedAt).getTime();
+    if (age > maxAge) {
+      console.warn(
+        `validateContextFreshness: Context too old (${age}ms > ${maxAge}ms) for member ${authContext.memberId}`
+      );
+      return false;
+    }
+
+    // Re-validate membership is still active
+    const freshContext = await resolveAuthContext(authContext.memberId, true);
+    if (!freshContext) {
+      console.warn(
+        `validateContextFreshness: Membership revoked or status changed for member ${authContext.memberId}`
+      );
+      return false;
+    }
+
+    // Check if role or branch changed
+    if (freshContext.role !== authContext.role) {
+      console.warn(
+        `validateContextFreshness: Role changed for member ${authContext.memberId} ` +
+        `(${authContext.role} -> ${freshContext.role})`
+      );
+      return false;
+    }
+
+    if (freshContext.branchId !== authContext.branchId) {
+      console.warn(
+        `validateContextFreshness: Branch changed for member ${authContext.memberId} ` +
+        `(${authContext.branchId} -> ${freshContext.branchId})`
+      );
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`validateContextFreshness: Unexpected error:`, error);
+    return false;
   }
 }
 
