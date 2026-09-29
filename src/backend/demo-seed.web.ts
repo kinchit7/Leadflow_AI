@@ -3,10 +3,17 @@
  * Creates isolated demo tenant with Real Estate sample data
  * Idempotent and restricted to authorized demo administration
  * Never mixes demo data into production
+ * 
+ * PHASE 3C HARDENING:
+ * - Requires Owner/Admin role for seed/reset operations
+ * - Validates AuthContext to prevent unauthorized access
+ * - Rejects attempts to seed production tenants
+ * - Logs all demo operations for audit trail
  */
 
 import { BaseCrudService } from '@/integrations/cms';
 import { Customers, Leads, Opportunities, Followups, SupportTickets, Conversations } from '@/entities';
+import { AuthContext, hasRole } from './auth.web';
 
 const DEMO_TENANT_ID = 'demo-tenant-real-estate';
 const DEMO_FLAG = true;
@@ -19,11 +26,40 @@ export function isDemoRecord(record: any): boolean {
 }
 
 /**
+ * Validate authorization for demo operations
+ * PHASE 3C: Only Owner/Admin can seed/reset demo data
+ */
+export function validateDemoOperationAuthorization(authContext: AuthContext | null): boolean {
+  if (!authContext) {
+    console.warn('validateDemoOperationAuthorization: No auth context provided');
+    return false;
+  }
+
+  if (!hasRole(authContext, ['owner', 'admin'])) {
+    console.error(
+      `validateDemoOperationAuthorization: Unauthorized demo operation by member ${authContext.memberId} with role ${authContext.role}`
+    );
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Seed demo tenant with Real Estate sample data
  * Idempotent - checks for existing demo data before creating
+ * PHASE 3C: Requires Owner/Admin authorization
  */
-export async function seedDemoTenant(): Promise<{ created: number; skipped: number }> {
+export async function seedDemoTenant(
+  authContext?: AuthContext
+): Promise<{ created: number; skipped: number }> {
   try {
+    // PHASE 3C: Validate authorization
+    if (!validateDemoOperationAuthorization(authContext)) {
+      console.error('seedDemoTenant: Unauthorized demo seed operation');
+      return { created: 0, skipped: 0 };
+    }
+
     let created = 0;
     let skipped = 0;
 
@@ -258,9 +294,18 @@ export async function seedDemoTenant(): Promise<{ created: number; skipped: numb
  * Reset demo tenant - delete all demo data
  * Only affects records with isDemo=true and tenantId=DEMO_TENANT_ID
  * Never deletes production records
+ * PHASE 3C: Requires Owner/Admin authorization
  */
-export async function resetDemoTenant(): Promise<{ deleted: number }> {
+export async function resetDemoTenant(
+  authContext?: AuthContext
+): Promise<{ deleted: number }> {
   try {
+    // PHASE 3C: Validate authorization
+    if (!validateDemoOperationAuthorization(authContext)) {
+      console.error('resetDemoTenant: Unauthorized demo reset operation');
+      return { deleted: 0 };
+    }
+
     let deleted = 0;
 
     // Delete demo customers (and cascade deletes related records)
