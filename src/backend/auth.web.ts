@@ -26,6 +26,8 @@ export interface AuthContext {
   businessId: string;
   branchId?: string;
   role?: string;
+  /** @internal PHASE 3F-C: Timestamp when context was validated */
+  _validatedAt?: Date;
 }
 
 /**
@@ -262,6 +264,22 @@ export async function authorizeRead(
   authContext: AuthContext
 ): Promise<boolean> {
   try {
+    // PHASE 3F-C: Validate context freshness FIRST
+    // Detects membership revocation, role changes, branch reassignments, and stale contexts
+    const isFresh = await validateContextFreshness(authContext);
+    if (!isFresh) {
+      console.warn(`authorizeRead: Context is stale for member ${authContext.memberId}`);
+      await logAuthorizationFailure(
+        collectionId,
+        recordId,
+        authContext.memberId,
+        authContext.businessId,
+        'Context is stale',
+        'HIGH'
+      );
+      return false;
+    }
+
     const record = await BaseCrudService.getById(collectionId, recordId);
     if (!record) {
       console.debug(`authorizeRead: Record not found - ${collectionId}:${recordId}`);
@@ -356,6 +374,22 @@ export async function authorizeWrite(
   authContext: AuthContext
 ): Promise<boolean> {
   try {
+    // PHASE 3F-C: Validate context freshness FIRST
+    // Detects membership revocation, role changes, branch reassignments, and stale contexts
+    const isFresh = await validateContextFreshness(authContext);
+    if (!isFresh) {
+      console.warn(`authorizeWrite: Context is stale for member ${authContext.memberId}`);
+      await logAuthorizationFailure(
+        collectionId,
+        recordId,
+        authContext.memberId,
+        authContext.businessId,
+        'Context is stale',
+        'HIGH'
+      );
+      return false;
+    }
+
     const record = await BaseCrudService.getById(collectionId, recordId);
     if (!record) {
       console.debug(`authorizeWrite: Record not found - ${collectionId}:${recordId}`);
