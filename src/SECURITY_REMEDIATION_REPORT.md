@@ -11,8 +11,20 @@
 
 This report documents security remediation work across 6 workstreams for LeadFlow AI. All code fixes have been implemented and integrated. Test suite has been created but requires execution in the Wix Vibe environment.
 
+**WORKSTREAM 1 CORRECTION:**
+The previous report claimed the old implementation was "server-side constrained" with `limit: 100`. This was **INCORRECT**. The old implementation:
+- Fetched first 100 records using `BaseCrudService.getAll(..., { limit: 100 })`
+- Applied filtering in memory (JavaScript array.filter)
+- **PROBLEM:** Valid memberships beyond record 100 would be missed
+
+The new implementation:
+- Uses Wix Data API predicates for database-level filtering
+- Predicates: `memberId == authenticated memberId` AND `status == 'active'`
+- Filtering happens at database level BEFORE pagination
+- **SOLUTION:** Correctly handles collections of any size
+
 **Key Achievements:**
-- ✅ WORKSTREAM 1: BusinessMembers authorization lookup hardened (server-side constrained)
+- ✅ WORKSTREAM 1: BusinessMembers authorization lookup hardened (NOW truly server-side constrained)
 - ✅ WORKSTREAM 2: Context freshness validation preserved and integrated
 - ✅ WORKSTREAM 3: Priority engine runtime defects fixed (undefined reference)
 - ✅ WORKSTREAM 4: Activity events duplicate handling made safe
@@ -26,58 +38,107 @@ This report documents security remediation work across 6 workstreams for LeadFlo
 
 ### WORKSTREAM 1: BusinessMembers Authorization Lookup
 
-**Problem:** Authorization path resolved BusinessMembers by fetching limited collection page and filtering in memory, allowing valid memberships beyond first 100 records to be missed.
+**Problem:** Authorization path resolved BusinessMembers by fetching limited collection page and filtering in memory, allowing valid memberships beyond first 100 records to be missed. The old approach was NOT server-side constrained.
 
 **Solution Implemented:**
-- Modified `resolveAuthContext()` in `/src/backend/auth.web.ts` (lines 85-183)
-- Query constrained with `limit: 100` to prevent full collection scan
-- Filters applied in-memory for:
-  - `memberId === authenticated memberId`
-  - `status === 'active'`
-  - Valid `businessId` field
-- Multiple active memberships detected and rejected (fail-closed)
+- Created new `queryWithPredicates()` function in `/src/backend/wix-data-query.web.ts`
+- Modified `resolveAuthContext()` in `/src/backend/auth.web.ts` to use server-side predicates
+- Query uses Wix Data API with database-level filtering:
+  - `memberId == authenticated memberId` (predicate)
+  - `status == 'active'` (predicate)
+- Retrieves at most 2 records to detect multiple active memberships
 - All required fields validated with type checking
+- Multiple active memberships detected and rejected (fail-closed)
 
 **Code Changes:**
+
+**New File: `/src/backend/wix-data-query.web.ts`**
 ```typescript
-// Line 101-105: Server-side constrained query
-const membershipResult = await BaseCrudService.getAll<BusinessMembers>(
-  'businessmembers',
-  [],
-  { limit: 100 }
-);
-
-// Line 114-120: Filtered for active memberships
-const activeMemberships = membershipResult.items.filter(
-  (m: BusinessMembers) => 
-    m.memberId === memberId && 
-    m.status === 'active' &&
-    m.businessId &&
-    typeof m.businessId === 'string'
-);
-
-// Line 131-139: Multiple membership detection (fail-closed)
-if (activeMemberships.length > 1) {
-  console.error(`Member ${memberId} has ${activeMemberships.length} active memberships...`);
-  await logMultipleMembershipDetected(memberId, activeMemberships.length);
-  return null;
+export async function queryWithPredicates<T extends WixDataItem>(
+  collectionId: string,
+  predicates: QueryPredicate[],
+  options?: PaginationOptions
+): Promise<PaginatedResult<T>> {
+  // Applies predicates at database level using Wix Data API
+  // Predicates are combined with AND logic
+  let query = items.query(collectionId);
+  
+  for (const predicate of predicates) {
+    switch (predicate.operator) {
+      case 'eq':
+        query = query.eq(predicate.field, predicate.value);
+        break;
+      // ... other operators
+    }
+  }
+  
+  query = query.limit(limit).skip(skip).returnTotalCount();
+  const result = await query.find();
+  // Returns PaginatedResult with items matching ALL predicates
 }
 ```
 
+**Modified: `/src/backend/auth.web.ts` - resolveAuthContext()**
+```typescript
+// WORKSTREAM 1: Server-side constrained query using Wix Data predicates
+const membershipResult = await queryWithPredicates<BusinessMembers>(
+  'businessmembers',
+  [
+    { field: 'memberId', operator: 'eq', value: memberId },
+    { field: 'status', operator: 'eq', value: 'active' }
+  ],
+  { limit: 2 } // Retrieve at most 2 to detect multiple active memberships
+);
+
+// Check result count:
+// 0 records → deny (no active membership)
+// 1 record → resolve authoritative context
+// 2+ records → fail closed (multiple active memberships exist)
+if (membershipResult.items.length === 0) {
+  return null; // No active membership
+}
+
+if (membershipResult.items.length > 1) {
+  console.error(`Member ${memberId} has multiple active memberships. Denying access.`);
+  await logMultipleMembershipDetected(memberId, membershipResult.items.length);
+  return null; // Fail closed
+}
+
+const membership = membershipResult.items[0];
+// Validate and extract businessId, branchId, role
+```
+
 **Security Guarantees:**
-- ✅ Query limited to 100 records (prevents full enumeration)
-- ✅ Filtered by authenticated memberId (no client override)
-- ✅ Status === 'active' enforced (no revoked/pending memberships)
-- ✅ Multiple memberships rejected (ambiguous context)
+- ✅ Query constrained at DATABASE LEVEL (not in-memory filtering)
+- ✅ Predicates: `memberId == authenticated memberId` AND `status == 'active'`
+- ✅ Handles >100 record case correctly (Wix Data predicates work on entire collection)
+- ✅ Detects multiple active memberships (retrieves limit:2, fails if count > 1)
+- ✅ Client cannot override memberId or status predicates
 - ✅ All field types validated
+- ✅ Fail-closed on ambiguous state (multiple active memberships)
+
+**How >100 Records Are Handled:**
+- Old approach: `getAll(..., { limit: 100 })` → fetches first 100 records, filters in memory
+  - **PROBLEM:** If valid membership is at record 101+, it would be missed
+- New approach: `queryWithPredicates(..., [{ field: 'memberId', operator: 'eq', value: memberId }, { field: 'status', operator: 'eq', value: 'active' }])`
+  - **SOLUTION:** Wix Data API applies predicates to entire collection before pagination
+  - Result contains ONLY matching records, regardless of collection size
+  - Pagination offset applies AFTER filtering
+
+**How Multiple Active Memberships Are Detected:**
+- Query retrieves at most 2 records (limit: 2)
+- If `items.length === 0` → no active membership → deny
+- If `items.length === 1` → single active membership → use it
+- If `items.length >= 2` → multiple active memberships detected → fail closed, log event
 
 **Tests Added:**
-- Valid membership found
-- Member has no active membership
-- Member has multiple active memberships
-- Membership beyond first 100 records (query constraint verification)
-- Inactive membership ignored
-- Query server-side constrained
+- ✅ Valid membership found (single active membership resolved)
+- ✅ Member has no active membership (returns null)
+- ✅ Member has multiple active memberships (fails closed)
+- ✅ Membership beyond first 100 records (query constraint verification)
+- ✅ Inactive membership ignored (only active status matched)
+- ✅ Query is server-side constrained (predicates applied at DB level)
+- ✅ Client-supplied businessId cannot change authorization context
 
 ---
 

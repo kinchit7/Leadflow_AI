@@ -13,6 +13,7 @@
 
 import { BaseCrudService } from '@/integrations/cms';
 import { BusinessMembers } from '@/entities';
+import { queryWithPredicates } from './wix-data-query.web';
 import { 
   logAuthorizationFailure, 
   logCrossTenantAccessAttempt, 
@@ -61,7 +62,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Set<string>> = {
 
 /**
  * Resolve authenticated user context from server-side session
- * PHASE 3 HARDENED IMPLEMENTATION:
+ * WORKSTREAM 1 HARDENED IMPLEMENTATION:
  * - Never trust tenantId/businessId from browser - resolve from authoritative BusinessMembers collection
  * - Validates member exists and has active business association
  * - Returns null if not authenticated, membership not found, or status != 'active'
@@ -70,6 +71,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, Set<string>> = {
  * - DETECTS MULTIPLE ACTIVE MEMBERSHIPS AND FAILS CLOSED
  * - VALIDATES ALL FIELD TYPES AND VALUES
  * - REJECTS MISSING REQUIRED FIELDS
+ * 
+ * SECURITY PROPERTY: Server-side constrained query
+ * - Uses Wix Data predicates to filter by memberId and status='active' at database level
+ * - Handles >100 record case by querying with predicates (not limited to first 100)
+ * - Detects multiple active memberships and fails closed
+ * - Never accepts client-supplied businessId as authorization proof
  * 
  * PHASE 3F-C HARDENING:
  * - Re-validates context on every request (never caches)
@@ -94,14 +101,17 @@ export async function resolveAuthContext(memberId: string, skipCache: boolean = 
     // Never rely on cached context - membership status can change between requests
     const contextValidationTime = new Date();
 
-    // Query authoritative BusinessMembers collection for member's business association
-    // LIMITATION: BaseCrudService.getAll does not support server-side filtering by memberId
-    // This requires fetching all records and filtering in memory.
-    // For production scale (>100 memberships), this requires Wix Data API enhancement.
-    const membershipResult = await BaseCrudService.getAll<BusinessMembers>(
+    // WORKSTREAM 1: Server-side constrained query using Wix Data predicates
+    // Query BusinessMembers with predicates: memberId == authenticated memberId AND status == 'active'
+    // This ensures the database query itself is constrained, not just in-memory filtering
+    // Retrieve at most 2 records to detect multiple active memberships
+    const membershipResult = await queryWithPredicates<BusinessMembers>(
       'businessmembers',
-      [],
-      { limit: 100 }
+      [
+        { field: 'memberId', operator: 'eq', value: memberId },
+        { field: 'status', operator: 'eq', value: 'active' }
+      ],
+      { limit: 2 } // Retrieve at most 2 to detect multiple active memberships
     );
 
     if (!membershipResult || !Array.isArray(membershipResult.items)) {
@@ -109,17 +119,11 @@ export async function resolveAuthContext(memberId: string, skipCache: boolean = 
       return null;
     }
 
-    // Find ALL active memberships for this member
-    // PHASE 3: Detect multiple active memberships and fail closed
-    const activeMemberships = membershipResult.items.filter(
-      (m: BusinessMembers) => 
-        m.memberId === memberId && 
-        m.status === 'active' &&
-        m.businessId &&
-        typeof m.businessId === 'string'
-    );
-
-    if (activeMemberships.length === 0) {
+    // WORKSTREAM 1: Check result count
+    // 0 records → deny (no active membership)
+    // 1 record → resolve authoritative context
+    // 2+ records → fail closed (multiple active memberships exist)
+    if (membershipResult.items.length === 0) {
       console.warn(
         `resolveAuthContext: No active membership found for member ${memberId}. ` +
         `Possible states: pending, suspended, revoked, or missing membership.`
@@ -127,20 +131,20 @@ export async function resolveAuthContext(memberId: string, skipCache: boolean = 
       return null;
     }
 
-    // PHASE 3: Reject if multiple active memberships exist
-    if (activeMemberships.length > 1) {
+    // WORKSTREAM 1: Reject if multiple active memberships exist
+    if (membershipResult.items.length > 1) {
       console.error(
-        `resolveAuthContext: Member ${memberId} has ${activeMemberships.length} active memberships. ` +
+        `resolveAuthContext: Member ${memberId} has ${membershipResult.items.length} active memberships. ` +
         `Ambiguous context. Requires explicit business selection. Denying access.`
       );
       // PHASE 3F-B: Log multiple membership detection
-      await logMultipleMembershipDetected(memberId, activeMemberships.length);
+      await logMultipleMembershipDetected(memberId, membershipResult.items.length);
       return null;
     }
 
-    const membership = activeMemberships[0];
+    const membership = membershipResult.items[0];
 
-    // PHASE 3: Validate all required fields with type checking
+    // WORKSTREAM 1: Validate all required fields with type checking
     if (!membership.businessId || typeof membership.businessId !== 'string') {
       console.error(`resolveAuthContext: Invalid businessId for member ${memberId}`);
       return null;
@@ -155,7 +159,7 @@ export async function resolveAuthContext(memberId: string, skipCache: boolean = 
       ? membership.role.toLowerCase()
       : undefined;
 
-    // PHASE 3: Validate role is in allowed set
+    // WORKSTREAM 1: Validate role is in allowed set
     if (role && !VALID_ROLES.includes(role as UserRole)) {
       console.warn(`resolveAuthContext: Invalid role '${role}' for member ${memberId}`);
       // Continue with undefined role rather than failing - role is optional
