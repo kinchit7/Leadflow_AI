@@ -89,7 +89,7 @@ export async function calculateLeadPriority(
     priority,
     explanation: generateExplanation(priority, signals),
     signals,
-    configuredThreshold,
+    configuredThreshold: businessConfiguredThreshold,
   };
 }
 
@@ -154,7 +154,7 @@ export async function calculateOpportunityPriority(
     priority,
     explanation: generateExplanation(priority, signals),
     signals,
-    configuredThreshold,
+    configuredThreshold: businessConfiguredThreshold,
   };
 }
 

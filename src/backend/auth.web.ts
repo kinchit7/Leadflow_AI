@@ -573,12 +573,18 @@ export function sanitizeUpdatePayload(
         `sanitizeUpdatePayload: Attempted override of protected field '${field}' by member ${authContext.memberId}`
       );
       // PHASE 3F-B: Log protected field override attempt (async, non-blocking)
-      logProtectedFieldOverrideAttempt(
+      // WORKSTREAM 6: Handle audit function that may return Promise or undefined
+      const auditPromise = logProtectedFieldOverrideAttempt(
         authContext.memberId,
         authContext.businessId,
         field,
         'unknown' // collectionId not available in this context
-      ).catch(err => console.error('Failed to log protected field override:', err));
+      );
+      
+      // Safely handle both Promise and undefined returns
+      if (auditPromise && typeof auditPromise.catch === 'function') {
+        auditPromise.catch(err => console.error('Failed to log protected field override:', err));
+      }
       
       delete sanitized[field];
     }

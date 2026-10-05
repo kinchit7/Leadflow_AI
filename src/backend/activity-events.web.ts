@@ -35,17 +35,26 @@ export async function createActivityEvent(
   try {
     // Check for duplicate event (same type, customer, related record, within 1 minute)
     const existingEvents = await BaseCrudService.getAll<ActivityEvent>('activityevents');
-    const isDuplicate = existingEvents.items?.some(e => 
-      e.eventType === event.eventType &&
-      e.customerId === event.customerId &&
-      e.relatedRecordId === event.relatedRecordId &&
-      e.tenantId === event.tenantId &&
-      new Date(e.timestamp!).getTime() > new Date().getTime() - 60000 // within 1 minute
-    );
+    
+    // WORKSTREAM 4: Safely handle undefined/null result before accessing .items
+    if (!existingEvents || !Array.isArray(existingEvents.items)) {
+      console.warn('Activity events query returned invalid result');
+      // Proceed with creation if we can't check for duplicates
+    } else {
+      // Find the actual duplicate event that matches all criteria
+      const duplicateEvent = existingEvents.items.find(e => 
+        e.eventType === event.eventType &&
+        e.customerId === event.customerId &&
+        e.relatedRecordId === event.relatedRecordId &&
+        e.tenantId === event.tenantId &&
+        new Date(e.timestamp!).getTime() > new Date().getTime() - 60000 // within 1 minute
+      );
 
-    if (isDuplicate) {
-      console.log('Duplicate event detected, skipping creation');
-      return existingEvents.items![0];
+      if (duplicateEvent) {
+        console.log('Duplicate event detected, returning existing event:', duplicateEvent._id);
+        // Return the actual duplicate event found, not blindly items[0]
+        return duplicateEvent;
+      }
     }
 
     const newEvent: ActivityEvent = {
