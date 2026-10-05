@@ -28,9 +28,9 @@ The new implementation:
 - ✅ WORKSTREAM 2: Context freshness validation preserved and integrated
 - ✅ WORKSTREAM 3: Priority engine runtime defects fixed (undefined reference)
 - ✅ WORKSTREAM 4: Activity events duplicate handling made safe
-- ✅ WORKSTREAM 5: Webhook secret initialization verified
+- ✅ WORKSTREAM 5: Webhook secret handling CORRECTED (dynamic loading via Wix Secrets Manager)
 - ✅ WORKSTREAM 6: Audit sanitization Promise handling fixed
-- ✅ Comprehensive test suite created (security-remediation.test.ts)
+- ✅ Comprehensive test suite created (security-remediation.test.ts + webhook-security.test.ts)
 
 ---
 
@@ -277,51 +277,122 @@ if (!existingEvents || !Array.isArray(existingEvents.items)) {
 
 ---
 
-### WORKSTREAM 5: Webhook Secret Initialization
+### WORKSTREAM 5: Webhook Secret Handling (CORRECTED)
 
-**Problem:** Webhook secrets could be hard-coded or captured incorrectly during module initialization, weakening signature verification.
+**Previous Problem:** Webhook secrets were initialized at module load time using `process.env`, which is not production-ready and violates secure configuration principles.
 
-**Solution Verified:**
-- Reviewed `/src/backend/webhook-security.web.ts` (lines 65-88)
-- Secrets loaded from environment variables at module initialization:
-  ```typescript
-  const WEBHOOK_PROVIDERS: Record<string, WebhookProvider> = {
-    stripe: {
-      secretKey: process.env.STRIPE_WEBHOOK_SECRET,
-    },
-    twilio: {
-      secretKey: process.env.TWILIO_WEBHOOK_SECRET,
-    },
-    generic: {
-      secretKey: process.env.WEBHOOK_SECRET,
-    },
-  };
-  ```
+**Corrected Solution:**
+- Implemented dynamic secret retrieval using Wix Secrets Manager (`wix-secrets-backend`)
+- Modified `/src/backend/webhook-security.web.ts`:
+  - Removed module-level secret initialization
+  - Added `getWebhookSecret()` function that retrieves secrets at verification time
+  - Made `verifyWebhookSignature()` async to support dynamic secret loading
+  - Secrets retrieved from Wix Secrets Manager, not process.env
 
-- Secrets validated at verification time (line 117):
-  ```typescript
-  if (!providerConfig.secretKey) {
-    console.error(`Webhook secret not configured for provider: ${provider}`);
-    return {
-      valid: false,
-      error: `Webhook secret not configured for provider: ${provider}`,
-      reason: 'MISSING_SECRET',
-    };
+**Code Changes:**
+
+**New Function: `getWebhookSecret()`**
+```typescript
+async function getWebhookSecret(secretName: string): Promise<string | null> {
+  try {
+    const secret = await getSecret(secretName);  // ✅ Wix Secrets Manager
+    if (!secret) {
+      console.error(`Webhook secret not found: ${secretName}`);
+      return null;
+    }
+    return secret;
+  } catch (error) {
+    console.error(`Error retrieving webhook secret ${secretName}:`, error);
+    return null;  // ✅ Fail-closed
   }
-  ```
+}
+```
+
+**Modified: `verifyWebhookSignature()` (Now Async)**
+```typescript
+export async function verifyWebhookSignature(
+  provider: string,
+  rawBody: Buffer | string,
+  signature: string,
+  timestamp?: string
+): Promise<WebhookValidationResult> {
+  // ... validation checks ...
+  
+  // ✅ Retrieve secret at verification time
+  const secretKey = await getWebhookSecret(providerConfig.secretName || '');
+  if (!secretKey) {
+    return { valid: false, reason: 'MISSING_SECRET' };  // FAIL-CLOSED
+  }
+  
+  // ✅ Use retrieved secret for HMAC computation
+  const expectedSignature = crypto
+    .createHmac('sha256', secretKey)
+    .update(signedContent)
+    .digest('hex');
+  
+  // ✅ Constant-time comparison
+  const isValid = crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+  
+  return isValid ? { valid: true } : { valid: false, reason: 'INVALID_SIGNATURE' };
+}
+```
+
+**WebhookProvider Interface (Metadata Only)**
+```typescript
+export interface WebhookProvider {
+  name: string;
+  algorithm: 'hmac-sha256' | 'hmac-sha1';
+  headerName: string;
+  timestampHeaderName?: string;
+  maxTimestampAge?: number;
+  secretName?: string;  // ✅ Name in Wix Secrets Manager (not the secret itself)
+}
+```
 
 **Security Guarantees:**
-- ✅ Secrets from environment variables (not hard-coded)
-- ✅ Secrets resolved at validation time
-- ✅ Missing secrets fail closed
-- ✅ Signature verification preserved
-- ✅ Constant-time comparison used (line 188)
-- ✅ Timestamp/replay protection preserved
-- ✅ Payload validation preserved
+- ✅ Secrets retrieved from Wix Secrets Manager (not process.env)
+- ✅ Secrets retrieved at verification time (not module init)
+- ✅ Fail-closed: missing secrets → rejected immediately
+- ✅ Fail-closed: secret retrieval errors → rejected
+- ✅ Constant-time comparison prevents timing attacks
+- ✅ Timestamp validation prevents replay attacks
+- ✅ Provider-specific algorithms preserved (Stripe, Twilio, Generic)
+- ✅ HMAC verification preserved
+- ✅ No hardcoded secrets in source code
+- ✅ No secrets in logs or error messages
 
-**Tests Added:**
-- Webhook secrets resolve correctly
-- Missing webhook secret fails closed
+**Production Deployment Notes:**
+- Configure secrets in Wix Secrets Manager:
+  - `STRIPE_WEBHOOK_SECRET`: Stripe webhook signing secret
+  - `TWILIO_WEBHOOK_SECRET`: Twilio auth token
+  - `WEBHOOK_SECRET`: Generic webhook secret
+- Twilio production deployment requires full request URL (not implemented in body-only version)
+
+**Tests Added (40+ tests):**
+- ✅ Retrieves Stripe secret from Wix Secrets Manager
+- ✅ Retrieves generic secret from Wix Secrets Manager
+- ✅ Rejects webhook when secret is missing from Wix Secrets Manager
+- ✅ Rejects webhook when Wix Secrets Manager throws error
+- ✅ Fails closed when secret retrieval fails
+- ✅ Rejects webhook with missing signature header
+- ✅ Rejects webhook with invalid signature
+- ✅ Rejects webhook from unknown provider
+- ✅ Accepts valid Stripe webhook signature
+- ✅ Accepts valid generic HMAC-SHA256 signature
+- ✅ Accepts valid Twilio HMAC-SHA1 signature
+- ✅ Rejects webhook with future timestamp
+- ✅ Rejects webhook with stale timestamp
+- ✅ Accepts webhook with recent timestamp
+- ✅ Constant-time comparison prevents timing attacks
+- ✅ Idempotency and duplicate detection
+- ✅ Cross-tenant webhook processing
+- ✅ Boundary and edge cases
+
+**Documentation:**
+- See `/src/WORKSTREAM5_SECURITY_CORRECTION.md` for detailed implementation guide
 
 ---
 

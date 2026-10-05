@@ -1,6 +1,7 @@
 /**
- * Webhook Security Tests - PHASE 3F-C
- * Tests for webhook signature validation, idempotency, and replay protection
+ * Webhook Security Tests - WORKSTREAM 5 (Corrected)
+ * Tests for webhook signature validation with dynamic secret loading
+ * Verifies secrets are retrieved from Wix Secrets Manager at verification time
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,6 +16,11 @@ import {
 } from '../webhook-security.web';
 import { BaseCrudService } from '@/integrations/cms';
 
+// Mock Wix Secrets Manager
+vi.mock('wix-secrets-backend', () => ({
+  getSecret: vi.fn(),
+}));
+
 // Mock BaseCrudService
 vi.mock('@/integrations/cms', () => ({
   BaseCrudService: {
@@ -25,48 +31,26 @@ vi.mock('@/integrations/cms', () => ({
   },
 }));
 
-describe('Webhook Security - PHASE 3F-C', () => {
+import { getSecret } from 'wix-secrets-backend';
+
+describe('Webhook Security - WORKSTREAM 5', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Set environment variables for webhook secrets
-    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_stripe_secret';
-    process.env.TWILIO_WEBHOOK_SECRET = 'twilio_test_secret';
-    process.env.WEBHOOK_SECRET = 'generic_test_secret';
+    // Mock getSecret to return test secrets
+    vi.mocked(getSecret).mockImplementation(async (secretName: string) => {
+      const secrets: Record<string, string> = {
+        'STRIPE_WEBHOOK_SECRET': 'whsec_test_stripe_secret',
+        'TWILIO_WEBHOOK_SECRET': 'twilio_test_secret',
+        'WEBHOOK_SECRET': 'generic_test_secret',
+      };
+      return secrets[secretName] || null;
+    });
   });
 
-  describe('Workstream A: Webhook Signature Validation', () => {
-    describe('Invalid and Missing Signatures', () => {
-      it('should reject webhook with missing signature header', () => {
-        const result = verifyWebhookSignature('stripe', 'test body', '');
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('MISSING_SIGNATURE');
-      });
-
-      it('should reject webhook with invalid signature', () => {
-        const body = 'test body';
-        const invalidSignature = 'invalid_signature_value';
-        const result = verifyWebhookSignature('stripe', body, invalidSignature);
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('INVALID_SIGNATURE');
-      });
-
-      it('should reject webhook from unknown provider', () => {
-        const result = verifyWebhookSignature('unknown_provider', 'test body', 'signature');
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('UNKNOWN_PROVIDER');
-      });
-
-      it('should reject webhook with missing secret configuration', () => {
-        delete process.env.STRIPE_WEBHOOK_SECRET;
-        const result = verifyWebhookSignature('stripe', 'test body', 'signature');
-        expect(result.valid).toBe(false);
-        expect(result.reason).toBe('MISSING_SECRET');
-      });
-    });
-
-    describe('Valid Signatures', () => {
-      it('should accept valid Stripe webhook signature', () => {
-        const secret = process.env.STRIPE_WEBHOOK_SECRET!;
+  describe('Workstream A: Secret Loading and Verification', () => {
+    describe('Secret Retrieval from Wix Secrets Manager', () => {
+      it('should retrieve Stripe secret from Wix Secrets Manager', async () => {
+        const secret = 'whsec_test_stripe_secret';
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const body = 'test body';
         const signedContent = `${timestamp}.${body}`;
@@ -75,100 +59,203 @@ describe('Webhook Security - PHASE 3F-C', () => {
           .update(signedContent)
           .digest('hex');
 
-        const result = verifyWebhookSignature('stripe', body, signature, timestamp);
+        const result = await verifyWebhookSignature('stripe', body, signature, timestamp);
+        
+        // Verify getSecret was called with correct secret name
+        expect(vi.mocked(getSecret)).toHaveBeenCalledWith('STRIPE_WEBHOOK_SECRET');
         expect(result.valid).toBe(true);
         expect(result.providerId).toBe('stripe');
       });
 
-      it('should accept valid generic HMAC-SHA256 signature', () => {
-        const secret = process.env.WEBHOOK_SECRET!;
+      it('should retrieve generic secret from Wix Secrets Manager', async () => {
+        const secret = 'generic_test_secret';
         const body = 'test body';
         const signature = crypto
           .createHmac('sha256', secret)
           .update(body)
           .digest('hex');
 
-        const result = verifyWebhookSignature('generic', body, signature);
+        const result = await verifyWebhookSignature('generic', body, signature);
+        
+        // Verify getSecret was called with correct secret name
+        expect(vi.mocked(getSecret)).toHaveBeenCalledWith('WEBHOOK_SECRET');
         expect(result.valid).toBe(true);
         expect(result.providerId).toBe('generic');
       });
-    });
 
-    describe('Replay Attack Prevention', () => {
-      it('should reject webhook with future timestamp', () => {
-        const secret = process.env.STRIPE_WEBHOOK_SECRET!;
-        const futureTimestamp = Math.floor(Date.now() / 1000 + 3600).toString(); // 1 hour in future
-        const body = 'test body';
-        const signedContent = `${futureTimestamp}.${body}`;
-        const signature = crypto
-          .createHmac('sha256', secret)
-          .update(signedContent)
-          .digest('hex');
+      it('should reject webhook when secret is missing from Wix Secrets Manager', async () => {
+        // Mock getSecret returning null (secret not found)
+        vi.mocked(getSecret).mockResolvedValueOnce(null);
 
-        const result = verifyWebhookSignature('stripe', body, signature, futureTimestamp);
+        const result = await verifyWebhookSignature('stripe', 'test body', 'signature', '123456');
+        
         expect(result.valid).toBe(false);
-        expect(result.reason).toBe('FUTURE_TIMESTAMP');
+        expect(result.reason).toBe('MISSING_SECRET');
+        expect(result.error).toContain('not configured');
       });
 
-      it('should reject webhook with stale timestamp', () => {
-        const secret = process.env.STRIPE_WEBHOOK_SECRET!;
-        const staleTimestamp = Math.floor(Date.now() / 1000 - 600).toString(); // 10 minutes old
-        const body = 'test body';
-        const signedContent = `${staleTimestamp}.${body}`;
-        const signature = crypto
-          .createHmac('sha256', secret)
-          .update(signedContent)
-          .digest('hex');
+      it('should reject webhook when Wix Secrets Manager throws error', async () => {
+        // Mock getSecret throwing error
+        vi.mocked(getSecret).mockRejectedValueOnce(new Error('Secrets Manager unavailable'));
 
-        const result = verifyWebhookSignature('stripe', body, signature, staleTimestamp);
+        const result = await verifyWebhookSignature('stripe', 'test body', 'signature', '123456');
+        
         expect(result.valid).toBe(false);
-        expect(result.reason).toBe('STALE_TIMESTAMP');
+        expect(result.reason).toBe('MISSING_SECRET');
       });
 
-      it('should accept webhook with recent timestamp', () => {
-        const secret = process.env.STRIPE_WEBHOOK_SECRET!;
-        const recentTimestamp = Math.floor(Date.now() / 1000 - 60).toString(); // 1 minute old
-        const body = 'test body';
-        const signedContent = `${recentTimestamp}.${body}`;
-        const signature = crypto
-          .createHmac('sha256', secret)
-          .update(signedContent)
-          .digest('hex');
+      it('should fail closed (reject) when secret retrieval fails', async () => {
+        // Simulate network error
+        vi.mocked(getSecret).mockRejectedValueOnce(new Error('Network timeout'));
 
-        const result = verifyWebhookSignature('stripe', body, signature, recentTimestamp);
-        expect(result.valid).toBe(true);
+        const result = await verifyWebhookSignature('generic', 'test body', 'valid_sig');
+        
+        // Fail-closed: must reject
+        expect(result.valid).toBe(false);
+        expect(result.reason).toBe('MISSING_SECRET');
       });
     });
 
-    describe('Payload Validation', () => {
-      it('should reject webhook with invalid content type', () => {
-        const result = validateWebhookPayload('text/plain', { test: 'data' });
+    describe('Invalid and Missing Signatures', () => {
+      it('should reject webhook with missing signature header', async () => {
+        const result = await verifyWebhookSignature('stripe', 'test body', '');
         expect(result.valid).toBe(false);
-        expect(result.reason).toBe('INVALID_CONTENT_TYPE');
+        expect(result.reason).toBe('MISSING_SIGNATURE');
       });
 
-      it('should reject webhook with non-object payload', () => {
-        const result = validateWebhookPayload('application/json', 'not an object');
+      it('should reject webhook with invalid signature', async () => {
+        const body = 'test body';
+        const invalidSignature = 'invalid_signature_value';
+        const result = await verifyWebhookSignature('stripe', body, invalidSignature);
         expect(result.valid).toBe(false);
-        expect(result.reason).toBe('INVALID_PAYLOAD_FORMAT');
+        expect(result.reason).toBe('INVALID_SIGNATURE');
       });
 
-      it('should reject webhook with oversized payload', () => {
-        const largePayload = { data: 'x'.repeat(2 * 1024 * 1024) }; // 2MB
-        const result = validateWebhookPayload('application/json', largePayload, 1024 * 1024);
+      it('should reject webhook from unknown provider', async () => {
+        const result = await verifyWebhookSignature('unknown_provider', 'test body', 'signature');
         expect(result.valid).toBe(false);
-        expect(result.reason).toBe('PAYLOAD_TOO_LARGE');
+        expect(result.reason).toBe('UNKNOWN_PROVIDER');
       });
+    });
 
-      it('should accept valid webhook payload', () => {
-        const payload = { id: 'evt_123', type: 'charge.succeeded' };
-        const result = validateWebhookPayload('application/json', payload);
+    describe('Valid Signatures', () => {
+      it('should accept valid Stripe webhook signature', async () => {
+        const secret = 'whsec_test_stripe_secret';
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const body = 'test body';
+        const signedContent = `${timestamp}.${body}`;
+        const signature = crypto
+          .createHmac('sha256', secret)
+          .update(signedContent)
+          .digest('hex');
+
+        const result = await verifyWebhookSignature('stripe', body, signature, timestamp);
         expect(result.valid).toBe(true);
+        expect(result.providerId).toBe('stripe');
+      });
+
+      it('should accept valid generic HMAC-SHA256 signature', async () => {
+        const secret = 'generic_test_secret';
+        const body = 'test body';
+        const signature = crypto
+          .createHmac('sha256', secret)
+          .update(body)
+          .digest('hex');
+
+        const result = await verifyWebhookSignature('generic', body, signature);
+        expect(result.valid).toBe(true);
+        expect(result.providerId).toBe('generic');
+      });
+
+      it('should accept valid Twilio HMAC-SHA1 signature', async () => {
+        const secret = 'twilio_test_secret';
+        const body = 'test body';
+        const signature = crypto
+          .createHmac('sha1', secret)
+          .update(body)
+          .digest('base64');
+
+        const result = await verifyWebhookSignature('twilio', body, signature);
+        expect(result.valid).toBe(true);
+        expect(result.providerId).toBe('twilio');
       });
     });
   });
 
-  describe('Workstream B: Idempotency and Duplicate Detection', () => {
+  describe('Workstream B: Replay Attack Prevention', () => {
+    it('should reject webhook with future timestamp', async () => {
+      const secret = 'whsec_test_stripe_secret';
+      const futureTimestamp = Math.floor(Date.now() / 1000 + 3600).toString(); // 1 hour in future
+      const body = 'test body';
+      const signedContent = `${futureTimestamp}.${body}`;
+      const signature = crypto
+        .createHmac('sha256', secret)
+        .update(signedContent)
+        .digest('hex');
+
+      const result = await verifyWebhookSignature('stripe', body, signature, futureTimestamp);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('FUTURE_TIMESTAMP');
+    });
+
+    it('should reject webhook with stale timestamp', async () => {
+      const secret = 'whsec_test_stripe_secret';
+      const staleTimestamp = Math.floor(Date.now() / 1000 - 600).toString(); // 10 minutes old
+      const body = 'test body';
+      const signedContent = `${staleTimestamp}.${body}`;
+      const signature = crypto
+        .createHmac('sha256', secret)
+        .update(signedContent)
+        .digest('hex');
+
+      const result = await verifyWebhookSignature('stripe', body, signature, staleTimestamp);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('STALE_TIMESTAMP');
+    });
+
+    it('should accept webhook with recent timestamp', async () => {
+      const secret = 'whsec_test_stripe_secret';
+      const recentTimestamp = Math.floor(Date.now() / 1000 - 60).toString(); // 1 minute old
+      const body = 'test body';
+      const signedContent = `${recentTimestamp}.${body}`;
+      const signature = crypto
+        .createHmac('sha256', secret)
+        .update(signedContent)
+        .digest('hex');
+
+      const result = await verifyWebhookSignature('stripe', body, signature, recentTimestamp);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('Workstream C: Payload Validation', () => {
+    it('should reject webhook with invalid content type', () => {
+      const result = validateWebhookPayload('text/plain', { test: 'data' });
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('INVALID_CONTENT_TYPE');
+    });
+
+    it('should reject webhook with non-object payload', () => {
+      const result = validateWebhookPayload('application/json', 'not an object');
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('INVALID_PAYLOAD_FORMAT');
+    });
+
+    it('should reject webhook with oversized payload', () => {
+      const largePayload = { data: 'x'.repeat(2 * 1024 * 1024) }; // 2MB
+      const result = validateWebhookPayload('application/json', largePayload, 1024 * 1024);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('should accept valid webhook payload', () => {
+      const payload = { id: 'evt_123', type: 'charge.succeeded' };
+      const result = validateWebhookPayload('application/json', payload);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('Workstream D: Idempotency and Duplicate Detection', () => {
     describe('Duplicate Event Detection', () => {
       it('should detect duplicate webhook event', async () => {
         const eventId = 'evt_duplicate_123';
@@ -279,7 +366,7 @@ describe('Webhook Security - PHASE 3F-C', () => {
     });
   });
 
-  describe('Workstream C: Event ID Extraction', () => {
+  describe('Workstream E: Event ID Extraction', () => {
     it('should extract event ID from Stripe payload', () => {
       const payload = { id: 'evt_stripe_123', type: 'charge.succeeded' };
       const eventId = extractEventId('stripe', payload);
@@ -311,7 +398,7 @@ describe('Webhook Security - PHASE 3F-C', () => {
     });
   });
 
-  describe('Workstream D: Cross-Tenant Webhook Processing', () => {
+  describe('Workstream F: Cross-Tenant Webhook Processing', () => {
     it('should prevent webhook from bypassing tenant authorization', async () => {
       // This test verifies that webhook processing respects business context
       // In actual implementation, webhook handlers should validate businessId
@@ -333,91 +420,89 @@ describe('Webhook Security - PHASE 3F-C', () => {
     });
   });
 
-  describe('Workstream E: Regression Tests', () => {
-    describe('Boundary Tests', () => {
-      it('should handle empty body', () => {
-        const result = verifyWebhookSignature('generic', '', 'signature');
-        expect(result.valid).toBe(false);
-      });
+  describe('Workstream G: Constant-Time Comparison', () => {
+    it('should use constant-time comparison to prevent timing attacks', async () => {
+      const secret = 'generic_test_secret';
+      const body = 'test body';
+      const validSignature = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
 
-      it('should handle Buffer body', () => {
-        const secret = process.env.WEBHOOK_SECRET!;
-        const body = Buffer.from('test body');
-        const signature = crypto
-          .createHmac('sha256', secret)
-          .update(body)
-          .digest('hex');
+      // Create invalid signature with same length
+      const invalidSignature = 'a'.repeat(validSignature.length);
 
-        const result = verifyWebhookSignature('generic', body, signature);
-        expect(result.valid).toBe(true);
-      });
+      const result1 = await verifyWebhookSignature('generic', body, validSignature);
+      const result2 = await verifyWebhookSignature('generic', body, invalidSignature);
 
-      it('should handle very long event ID', async () => {
-        const eventId = 'evt_' + 'x'.repeat(1000);
-        const provider = 'stripe';
+      expect(result1.valid).toBe(true);
+      expect(result2.valid).toBe(false);
+    });
+  });
 
-        vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
-          items: [],
-          totalCount: 0,
-          hasNext: false,
-          currentPage: 0,
-          pageSize: 0,
-          nextSkip: null,
-        });
+  describe('Workstream H: Provider-Specific Tests', () => {
+    it('should validate Stripe signature format', async () => {
+      const secret = 'whsec_test_stripe_secret';
+      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const body = 'test body';
 
-        const isDuplicate = await isWebhookDuplicate(eventId, provider);
-        expect(isDuplicate).toBe(false);
-      });
+      // Stripe expects: timestamp.signature
+      const signedContent = `${timestamp}.${body}`;
+      const signature = crypto
+        .createHmac('sha256', secret)
+        .update(signedContent)
+        .digest('hex');
+
+      const result = await verifyWebhookSignature('stripe', body, signature, timestamp);
+      expect(result.valid).toBe(true);
     });
 
-    describe('Signature Timing Tests', () => {
-      it('should use constant-time comparison to prevent timing attacks', () => {
-        const secret = process.env.WEBHOOK_SECRET!;
-        const body = 'test body';
-        const validSignature = crypto
-          .createHmac('sha256', secret)
-          .update(body)
-          .digest('hex');
+    it('should validate Twilio signature format', async () => {
+      const secret = 'twilio_test_secret';
+      const body = 'test body';
+      const signature = crypto
+        .createHmac('sha1', secret)
+        .update(body)
+        .digest('base64');
 
-        // Create invalid signature with same length
-        const invalidSignature = 'a'.repeat(validSignature.length);
+      const result = await verifyWebhookSignature('twilio', body, signature);
+      expect(result.valid).toBe(true);
+    });
+  });
 
-        const result1 = verifyWebhookSignature('generic', body, validSignature);
-        const result2 = verifyWebhookSignature('generic', body, invalidSignature);
-
-        expect(result1.valid).toBe(true);
-        expect(result2.valid).toBe(false);
-      });
+  describe('Workstream I: Boundary and Edge Cases', () => {
+    it('should handle empty body', async () => {
+      const result = await verifyWebhookSignature('generic', '', 'signature');
+      expect(result.valid).toBe(false);
     });
 
-    describe('Provider-Specific Tests', () => {
-      it('should validate Stripe signature format', () => {
-        const secret = process.env.STRIPE_WEBHOOK_SECRET!;
-        const timestamp = Math.floor(Date.now() / 1000).toString();
-        const body = 'test body';
+    it('should handle Buffer body', async () => {
+      const secret = 'generic_test_secret';
+      const body = Buffer.from('test body');
+      const signature = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
 
-        // Stripe expects: timestamp.signature
-        const signedContent = `${timestamp}.${body}`;
-        const signature = crypto
-          .createHmac('sha256', secret)
-          .update(signedContent)
-          .digest('hex');
+      const result = await verifyWebhookSignature('generic', body, signature);
+      expect(result.valid).toBe(true);
+    });
 
-        const result = verifyWebhookSignature('stripe', body, signature, timestamp);
-        expect(result.valid).toBe(true);
+    it('should handle very long event ID', async () => {
+      const eventId = 'evt_' + 'x'.repeat(1000);
+      const provider = 'stripe';
+
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: [],
+        totalCount: 0,
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 0,
+        nextSkip: null,
       });
 
-      it('should validate Twilio signature format', () => {
-        const secret = process.env.TWILIO_WEBHOOK_SECRET!;
-        const body = 'test body';
-        const signature = crypto
-          .createHmac('sha1', secret)
-          .update(body)
-          .digest('base64');
-
-        const result = verifyWebhookSignature('twilio', body, signature);
-        expect(result.valid).toBe(true);
-      });
+      const isDuplicate = await isWebhookDuplicate(eventId, provider);
+      expect(isDuplicate).toBe(false);
     });
   });
 });

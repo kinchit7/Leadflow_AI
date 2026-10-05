@@ -1,15 +1,27 @@
 /**
- * Webhook Security Module - PHASE 3F-C
+ * Webhook Security Module - WORKSTREAM 5 (Corrected)
  * Implements provider-agnostic webhook signature validation, idempotency, and replay protection
  * 
+ * SECURITY ARCHITECTURE:
+ * - Secrets retrieved explicitly at verification time via Wix Secrets Manager
+ * - Fail-closed: missing secrets → rejected immediately
+ * - No module-level secret initialization (prevents stale secrets)
+ * - Constant-time HMAC comparison prevents timing attacks
+ * - Timestamp validation prevents replay attacks
+ * - Idempotency prevents duplicate processing
+ * 
  * Supported Providers:
- * - Stripe: HMAC-SHA256 with X-Stripe-Signature header
- * - Twilio: HMAC-SHA1 with X-Twilio-Signature header
+ * - Stripe: HMAC-SHA256 with X-Stripe-Signature header (timestamp.signature format)
+ * - Twilio: HMAC-SHA1 with X-Twilio-Signature header (requires full URL for production)
  * - Generic: HMAC-SHA256 with X-Signature header
+ * 
+ * IMPORTANT PRODUCTION NOTES:
+ * - Twilio signature verification requires the full request URL, which must be passed separately
+ * - Current implementation uses body-only verification; production deployment requires URL parameter
  * 
  * Security Controls:
  * - Verify provider signatures using documented algorithms
- * - Store signing secrets in secure configuration
+ * - Retrieve signing secrets from Wix Secrets Manager at verification time
  * - Validate timestamps to prevent replay attacks
  * - Enforce idempotency for duplicate events
  * - Validate payload structure and content type
@@ -19,10 +31,11 @@
  */
 
 import crypto from 'crypto';
+import { getSecret } from 'wix-secrets-backend';
 import { BaseCrudService } from '@/integrations/cms';
 
 /**
- * Webhook provider configuration
+ * Webhook provider metadata (does NOT include secrets)
  */
 export interface WebhookProvider {
   name: string;
@@ -30,7 +43,7 @@ export interface WebhookProvider {
   headerName: string;
   timestampHeaderName?: string;
   maxTimestampAge?: number; // milliseconds
-  secretKey?: string; // Should be loaded from secure config
+  secretName?: string; // Name of secret in Wix Secrets Manager
 }
 
 /**
@@ -59,8 +72,8 @@ export interface WebhookIdempotencyRecord {
 }
 
 /**
- * Registered webhook providers
- * In production, these should be loaded from secure configuration
+ * Registered webhook providers (metadata only, no secrets)
+ * Secrets are retrieved at verification time via Wix Secrets Manager
  */
 const WEBHOOK_PROVIDERS: Record<string, WebhookProvider> = {
   stripe: {
@@ -69,26 +82,49 @@ const WEBHOOK_PROVIDERS: Record<string, WebhookProvider> = {
     headerName: 'x-stripe-signature',
     timestampHeaderName: 't',
     maxTimestampAge: 5 * 60 * 1000, // 5 minutes
-    secretKey: process.env.STRIPE_WEBHOOK_SECRET,
+    secretName: 'STRIPE_WEBHOOK_SECRET',
   },
   twilio: {
     name: 'Twilio',
     algorithm: 'hmac-sha1',
     headerName: 'x-twilio-signature',
     maxTimestampAge: 5 * 60 * 1000, // 5 minutes
-    secretKey: process.env.TWILIO_WEBHOOK_SECRET,
+    secretName: 'TWILIO_WEBHOOK_SECRET',
   },
   generic: {
     name: 'Generic',
     algorithm: 'hmac-sha256',
     headerName: 'x-signature',
     maxTimestampAge: 5 * 60 * 1000, // 5 minutes
-    secretKey: process.env.WEBHOOK_SECRET,
+    secretName: 'WEBHOOK_SECRET',
   },
 };
 
 /**
+ * Retrieve webhook secret from Wix Secrets Manager
+ * Fail-closed: returns null if secret not found
+ * 
+ * @param secretName - Name of secret in Wix Secrets Manager
+ * @returns Secret value or null if not found
+ */
+async function getWebhookSecret(secretName: string): Promise<string | null> {
+  try {
+    const secret = await getSecret(secretName);
+    if (!secret) {
+      console.error(`Webhook secret not found in Wix Secrets Manager: ${secretName}`);
+      return null;
+    }
+    return secret;
+  } catch (error) {
+    console.error(`Error retrieving webhook secret ${secretName}:`, error);
+    return null;
+  }
+}
+
+/**
  * Verify webhook signature using provider-specific algorithm
+ * Secrets are retrieved at verification time from Wix Secrets Manager
+ * Fail-closed: missing secrets → rejected immediately
  * 
  * @param provider - Webhook provider name
  * @param rawBody - Raw request body (must be Buffer or string)
@@ -96,12 +132,12 @@ const WEBHOOK_PROVIDERS: Record<string, WebhookProvider> = {
  * @param timestamp - Timestamp from request header (optional)
  * @returns Validation result with error details
  */
-export function verifyWebhookSignature(
+export async function verifyWebhookSignature(
   provider: string,
   rawBody: Buffer | string,
   signature: string,
   timestamp?: string
-): WebhookValidationResult {
+): Promise<WebhookValidationResult> {
   try {
     // Validate provider is registered
     const providerConfig = WEBHOOK_PROVIDERS[provider.toLowerCase()];
@@ -113,22 +149,23 @@ export function verifyWebhookSignature(
       };
     }
 
-    // Validate secret is configured
-    if (!providerConfig.secretKey) {
-      console.error(`Webhook secret not configured for provider: ${provider}`);
-      return {
-        valid: false,
-        error: `Webhook secret not configured for provider: ${provider}`,
-        reason: 'MISSING_SECRET',
-      };
-    }
-
     // Validate signature header is present
     if (!signature || typeof signature !== 'string') {
       return {
         valid: false,
         error: 'Missing or invalid signature header',
         reason: 'MISSING_SIGNATURE',
+      };
+    }
+
+    // Retrieve secret from Wix Secrets Manager at verification time
+    const secretKey = await getWebhookSecret(providerConfig.secretName || '');
+    if (!secretKey) {
+      console.error(`Webhook secret not configured for provider: ${provider}`);
+      return {
+        valid: false,
+        error: `Webhook secret not configured for provider: ${provider}`,
+        reason: 'MISSING_SECRET',
       };
     }
 
@@ -165,26 +202,26 @@ export function verifyWebhookSignature(
       // Stripe format: timestamp.signature
       const signedContent = `${timestamp}.${bodyString}`;
       expectedSignature = crypto
-        .createHmac('sha256', providerConfig.secretKey)
+        .createHmac('sha256', secretKey)
         .update(signedContent)
         .digest('hex');
     } else if (provider.toLowerCase() === 'twilio') {
       // Twilio format: HMAC-SHA1 of URL + body
-      // Note: This requires the full URL, which should be passed separately
-      // For now, we'll use just the body
+      // PRODUCTION NOTE: This requires the full request URL, which should be passed separately
+      // Current implementation uses body-only verification for testing
       expectedSignature = crypto
-        .createHmac('sha1', providerConfig.secretKey)
+        .createHmac('sha1', secretKey)
         .update(bodyString)
         .digest('base64');
     } else {
       // Generic HMAC-SHA256
       expectedSignature = crypto
-        .createHmac('sha256', providerConfig.secretKey)
+        .createHmac('sha256', secretKey)
         .update(bodyString)
         .digest('hex');
     }
 
-    // Compare signatures using constant-time comparison
+    // Compare signatures using constant-time comparison to prevent timing attacks
     const isValid = crypto.timingSafeEqual(
       Buffer.from(signature),
       Buffer.from(expectedSignature)
