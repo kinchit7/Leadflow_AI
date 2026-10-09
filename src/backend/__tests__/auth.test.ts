@@ -80,7 +80,7 @@ vi.mock('../wix-data-query.web', () => ({
     
     return {
       items: filteredItems,
-      totalCount: result.totalCount,
+      totalCount: filteredItems.length,
       hasNext: false,
       currentPage: 0,
       pageSize: options?.limit ?? 50,
