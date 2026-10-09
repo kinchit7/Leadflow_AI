@@ -105,14 +105,25 @@ export async function resolveAuthContext(memberId: string, skipCache: boolean = 
     // Query BusinessMembers with predicates: memberId == authenticated memberId AND status == 'active'
     // This ensures the database query itself is constrained, not just in-memory filtering
     // Retrieve at most 2 records to detect multiple active memberships
-    const membershipResult = await queryWithPredicates<BusinessMembers>(
-      'businessmembers',
-      [
-        { field: 'memberId', operator: 'eq', value: memberId },
-        { field: 'status', operator: 'eq', value: 'active' }
-      ],
-      { limit: 2 } // Retrieve at most 2 to detect multiple active memberships
-    );
+    // FAIL CLOSED: If any page fails or returns malformed data, queryWithPredicates throws
+    let membershipResult: any;
+    try {
+      membershipResult = await queryWithPredicates<BusinessMembers>(
+        'businessmembers',
+        [
+          { field: 'memberId', operator: 'eq', value: memberId },
+          { field: 'status', operator: 'eq', value: 'active' }
+        ],
+        { limit: 2 } // Retrieve at most 2 to detect multiple active memberships
+      );
+    } catch (queryError) {
+      console.error(
+        `resolveAuthContext: Query failed for member ${memberId}: ` +
+        `${queryError instanceof Error ? queryError.message : String(queryError)}`
+      );
+      // FAIL CLOSED: Incomplete scan or database error
+      return null;
+    }
 
     if (!membershipResult || !Array.isArray(membershipResult.items)) {
       console.error('resolveAuthContext: Failed to query BusinessMembers collection');
