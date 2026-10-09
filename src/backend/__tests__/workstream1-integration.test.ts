@@ -82,12 +82,6 @@ vi.mock('../audit-service.web', () => ({
 describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Prevent one-shot CRUD mock responses leaking into the next test.
-    vi.mocked(BaseCrudService.getAll).mockReset();
-    vi.mocked(BaseCrudService.getById)?.mockReset?.();
-    vi.mocked(BaseCrudService.create)?.mockReset?.();
-    vi.mocked(BaseCrudService.update)?.mockReset?.();
-    vi.mocked(BaseCrudService.delete)?.mockReset?.();
     vi.mocked(BaseCrudService.getAll).mockReset();
     vi.mocked(BaseCrudService.getById)?.mockReset?.();
     vi.mocked(BaseCrudService.getAll).mockResolvedValue({
@@ -98,12 +92,6 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
-    // Prevent one-shot CRUD mock responses leaking into the next test.
-    vi.mocked(BaseCrudService.getAll).mockReset();
-    vi.mocked(BaseCrudService.getById)?.mockReset?.();
-    vi.mocked(BaseCrudService.create)?.mockReset?.();
-    vi.mocked(BaseCrudService.update)?.mockReset?.();
-    vi.mocked(BaseCrudService.delete)?.mockReset?.();
   });
 
   describe('Integration: validateContextFreshness() in authorizeRead()', () => {
