@@ -1027,4 +1027,307 @@ describe('WORKSTREAM 1: Authorization Query Regression Tests', () => {
       expect(result?.businessId).toBe(targetBusinessId);
     });
   });
+
+  describe('Regression Test 19: Malformed first-page responses', () => {
+    it('should reject when first page has invalid totalCount (string)', async () => {
+      const targetMemberId = 'member-target';
+      
+      const memberships: BusinessMembers[] = [
+        {
+          _id: 'bm-1',
+          memberId: targetMemberId,
+          businessId: 'business-1',
+          role: 'admin',
+          status: 'active',
+        },
+      ];
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: memberships,
+        totalCount: '1' as any, // Invalid: string instead of number
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed due to malformed first-page response
+      expect(result).toBeNull();
+    });
+
+    it('should reject when first page has null totalCount', async () => {
+      const targetMemberId = 'member-target';
+      
+      const memberships: BusinessMembers[] = [
+        {
+          _id: 'bm-1',
+          memberId: targetMemberId,
+          businessId: 'business-1',
+          role: 'admin',
+          status: 'active',
+        },
+      ];
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: memberships,
+        totalCount: null as any, // Invalid: null
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed due to malformed first-page response
+      expect(result).toBeNull();
+    });
+
+    it('should reject when first page has invalid hasNext (null)', async () => {
+      const targetMemberId = 'member-target';
+      
+      const memberships: BusinessMembers[] = [
+        {
+          _id: 'bm-1',
+          memberId: targetMemberId,
+          businessId: 'business-1',
+          role: 'admin',
+          status: 'active',
+        },
+      ];
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: memberships,
+        totalCount: 1,
+        hasNext: null as any, // Invalid: null instead of boolean
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed due to malformed first-page response
+      expect(result).toBeNull();
+    });
+
+    it('should reject when first page items is null', async () => {
+      const targetMemberId = 'member-target';
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: null as any, // Invalid: null instead of array
+        totalCount: 1,
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed due to malformed first-page response
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Regression Test 20: Later-page failures with incomplete scan detection', () => {
+    it('should fail closed when later page returns malformed totalCount', async () => {
+      const targetMemberId = 'member-target';
+      
+      // First page: 100 unrelated + 1 target membership
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-other-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      page1.push({
+        _id: 'bm-target-1',
+        memberId: targetMemberId,
+        businessId: 'business-1',
+        role: 'admin',
+        status: 'active',
+      });
+      
+      // Mock: first page succeeds, second page has malformed totalCount
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 202,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: [],
+          totalCount: 'invalid' as any, // Malformed
+          hasNext: false,
+          currentPage: 1,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed - incomplete scan with malformed data
+      expect(result).toBeNull();
+    });
+
+    it('should fail closed when later page returns malformed hasNext', async () => {
+      const targetMemberId = 'member-target';
+      
+      // First page: 100 unrelated + 1 target membership
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-other-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      page1.push({
+        _id: 'bm-target-1',
+        memberId: targetMemberId,
+        businessId: 'business-1',
+        role: 'admin',
+        status: 'active',
+      });
+      
+      // Mock: first page succeeds, second page has malformed hasNext
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 202,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: [],
+          totalCount: 202,
+          hasNext: 'true' as any, // Malformed: string instead of boolean
+          currentPage: 1,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed - incomplete scan with malformed data
+      expect(result).toBeNull();
+    });
+
+    it('should fail closed when later page returns null items', async () => {
+      const targetMemberId = 'member-target';
+      
+      // First page: 100 unrelated + 1 target membership
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-other-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      page1.push({
+        _id: 'bm-target-1',
+        memberId: targetMemberId,
+        businessId: 'business-1',
+        role: 'admin',
+        status: 'active',
+      });
+      
+      // Mock: first page succeeds, second page has null items
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 202,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: null as any, // Malformed: null instead of array
+          totalCount: 202,
+          hasNext: false,
+          currentPage: 1,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed - incomplete scan with malformed data
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Regression Test 21: Duplicate membership detection across pages', () => {
+    it('should fail closed when duplicate memberships found on different pages', async () => {
+      const targetMemberId = 'member-target';
+      
+      // First page: 100 unrelated + 1 target membership
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-other-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      page1.push({
+        _id: 'bm-target-1',
+        memberId: targetMemberId,
+        businessId: 'business-1',
+        role: 'admin',
+        status: 'active',
+      });
+      
+      // Second page: another target membership
+      const page2: BusinessMembers[] = [
+        {
+          _id: 'bm-target-2',
+          memberId: targetMemberId,
+          businessId: 'business-2',
+          role: 'manager',
+          status: 'active',
+        },
+      ];
+      
+      // Mock pagination
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 202,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: page2,
+          totalCount: 202,
+          hasNext: false,
+          currentPage: 1,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed due to multiple active memberships
+      expect(result).toBeNull();
+    });
+  });
 });

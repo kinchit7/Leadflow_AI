@@ -35,6 +35,13 @@
  * ✓ Second-page database failure after one matching membership
  * ✓ Malformed pagination responses
  * ✓ Database errors handled (fail closed)
+ * 
+ * WORKSTREAM 1 HARDENING:
+ * ✓ Rejects malformed first-page responses (invalid totalCount, hasNext)
+ * ✓ Rejects later-page failures with incomplete scan detection
+ * ✓ Detects duplicate memberships across pages
+ * ✓ Validates pagination response structure on every page
+ * ✓ Fails closed on any validation error
  */
 
 import { BaseCrudService, WixDataItem, PaginationOptions, PaginatedResult } from '@/integrations/cms';
