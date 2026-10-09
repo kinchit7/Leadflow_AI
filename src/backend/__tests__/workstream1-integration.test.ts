@@ -621,7 +621,7 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
       });
 
       // Mock fresh context resolution
-      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+      vi.mocked(BaseCrudService.getAll).mockResolvedValue({
         items: [
           {
             _id: 'membership-1',
