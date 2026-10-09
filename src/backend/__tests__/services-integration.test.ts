@@ -111,6 +111,10 @@ vi.mock('../wix-data-query.web', () => ({
 describe('Service Integration Tests - Phase 3C', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(BaseCrudService.getAll).mockResolvedValue({
+      items: [{ _id: 'bm-member-1', memberId: 'member-1', businessId: 'business-1', role: 'sales', status: 'active' }],
+      totalCount: 1, hasNext: false, currentPage: 0, pageSize: 1, nextSkip: null,
+    } as any);
   });
 
   // ============================================================================
