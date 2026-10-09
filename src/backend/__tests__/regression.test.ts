@@ -290,6 +290,7 @@ describe('PHASE 3F-B Regression Tests', () => {
         businessId: 'business-1',
         branchId: 'branch-1',
         role: 'manager',
+        _validatedAt: new Date(),
       } as AuthContext;
 
       const authorized = authorizeBranchAccess(authContext, 'branch-2');
