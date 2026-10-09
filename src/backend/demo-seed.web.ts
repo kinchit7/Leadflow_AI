@@ -57,7 +57,7 @@ export async function seedDemoTenant(
     // PHASE 3C: Validate authorization
     if (!validateDemoOperationAuthorization(authContext)) {
       console.error('seedDemoTenant: Unauthorized demo seed operation');
-      return { created: 0, skipped: 0 };
+      throw new Error('Demo initialization requires an authorized owner/admin context.');
     }
 
     let created = 0;
@@ -303,7 +303,7 @@ export async function resetDemoTenant(
     // PHASE 3C: Validate authorization
     if (!validateDemoOperationAuthorization(authContext)) {
       console.error('resetDemoTenant: Unauthorized demo reset operation');
-      return { deleted: 0 };
+      throw new Error('Demo reset requires an authorized owner/admin context.');
     }
 
     let deleted = 0;
