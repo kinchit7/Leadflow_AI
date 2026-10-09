@@ -42,6 +42,8 @@ jobs:
           failed=0
 
           for suite in \
+            src/backend/__tests__/wix-data-query-regression.test.ts \
+            src/backend/__tests__/authorization-query-regression.test.ts \
             src/backend/__tests__/workstream1-integration.test.ts \
             src/backend/__tests__/context-integrity.test.ts \
             src/backend/__tests__/regression.test.ts \
