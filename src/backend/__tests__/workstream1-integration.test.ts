@@ -82,6 +82,8 @@ vi.mock('../audit-service.web', () => ({
 describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(BaseCrudService.getAll).mockReset();
+    vi.mocked(BaseCrudService.getById)?.mockReset?.();
     vi.mocked(BaseCrudService.getAll).mockResolvedValue({
       items: [{ _id: 'bm-member-123', memberId: 'member-123', businessId: 'business-123', role: 'manager', status: 'active' }],
       totalCount: 1, hasNext: false, currentPage: 0, pageSize: 1, nextSkip: null,
