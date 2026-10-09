@@ -1,316 +1,181 @@
 /**
- * WORKSTREAM 1: Wix Data Query Service - GENUINE SERVER-SIDE FILTERING
- * 
- * CRITICAL SECURITY REQUIREMENT:
- * This module implements GENUINE server-side database-level filtering for authorization queries.
- * Predicates MUST be applied at the database level, NOT in-memory.
- * 
- * SECURITY PROPERTIES:
- * ✓ Predicates applied at database level via Wix Data SDK query builder
- * ✓ Retrieves ALL matching records (not limited to first N)
- * ✓ Handles >1000 record case correctly via pagination
- * ✓ Fail-closed on zero or multiple matches
- * ✓ Fail-closed on any page failure or malformed data
- * ✓ Detects ambiguous membership state
- * ✓ Rejects malformed records
- * ✓ Never accepts client-supplied override values
- * 
- * IMPLEMENTATION STRATEGY:
- * Uses Wix Data SDK's query API with server-side predicates:
- * 1. Build query with predicates applied at database level (wixData.query().eq().eq()...)
- * 2. Paginate through ALL results to find all matches
- * 3. Fail closed if any page fails or returns malformed data
- * 4. Apply result limit AFTER collecting all matching records
- * 5. Return authoritative data only
- * 
- * REGRESSION TEST COVERAGE:
- * ✓ Target membership after 100+ unrelated records
- * ✓ First two records belong to other members
- * ✓ Two active memberships exist for same member
- * ✓ Member has no active membership
- * ✓ Query returns malformed data
- * ✓ Client-supplied IDs cannot override authoritative data
- * ✓ Records beyond first page are found
- * ✓ Duplicate memberships across pages detected
- * ✓ Second-page database failure after one matching membership
- * ✓ Malformed pagination responses
- * ✓ Database errors handled (fail closed)
- * 
- * WORKSTREAM 1 HARDENING:
- * ✓ Rejects malformed first-page responses (invalid totalCount, hasNext)
- * ✓ Rejects later-page failures with incomplete scan detection
- * ✓ Detects duplicate memberships across pages
- * ✓ Validates pagination response structure on every page
- * ✓ Fails closed on any validation error
+ * WORKSTREAM 1: Wix Data Query Service
+ *
+ * Security contract:
+ * - Every predicate is applied by the Wix Data query builder before find().
+ * - Never fetch an unrestricted collection and filter authorization rows in memory.
+ * - Validate every page's structure and pagination metadata.
+ * - Reject any incomplete, inconsistent, or malformed scan.
  */
 
-import { BaseCrudService, WixDataItem, PaginationOptions, PaginatedResult } from '@/integrations/cms';
+import { items } from '@wix/data';
+import { PaginationOptions, PaginatedResult, WixDataItem } from '@/integrations/cms';
 
-/**
- * Predicate for filtering Wix Data queries
- */
 export interface QueryPredicate {
   field: string;
   operator: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'contains' | 'startsWith';
   value: unknown;
 }
 
+const MAX_PAGES = 200;
+const PAGE_SIZE = 100;
+
+function applyPredicate(query: any, predicate: QueryPredicate): any {
+  if (!predicate || typeof predicate.field !== 'string' || predicate.field.trim() === '') {
+    throw new Error('queryWithPredicates: Predicate field must be a non-empty string');
+  }
+
+  const methodByOperator: Record<QueryPredicate['operator'], string> = {
+    eq: 'eq',
+    ne: 'ne',
+    gt: 'gt',
+    gte: 'gte',
+    lt: 'lt',
+    lte: 'lte',
+    contains: 'contains',
+    startsWith: 'startsWith',
+  };
+  const method = methodByOperator[predicate.operator];
+  if (!method || typeof query[method] !== 'function') {
+    throw new Error('queryWithPredicates: Unsupported Wix Data query operator "' + predicate.operator + '"');
+  }
+  if (predicate.value === undefined) {
+    throw new Error('queryWithPredicates: Undefined predicate value for "' + predicate.field + '"');
+  }
+  return query[method](predicate.field, predicate.value);
+}
+
+function validatePage(
+  result: any,
+  collectionId: string,
+  expectedTotalCount: number | undefined,
+  pageNumber: number
+): { items: WixDataItem[]; totalCount: number; hasNext: boolean } {
+  if (!result || typeof result !== 'object') {
+    throw new Error('queryWithPredicates: Malformed result on page ' + pageNumber + ' for ' + collectionId);
+  }
+  if (!Array.isArray(result.items)) {
+    throw new Error('queryWithPredicates: Malformed items on page ' + pageNumber + ' for ' + collectionId);
+  }
+  if (
+    typeof result.totalCount !== 'number' ||
+    !Number.isFinite(result.totalCount) ||
+    !Number.isInteger(result.totalCount) ||
+    result.totalCount < 0
+  ) {
+    throw new Error('queryWithPredicates: Invalid totalCount on page ' + pageNumber + ' for ' + collectionId);
+  }
+  if (expectedTotalCount !== undefined && result.totalCount !== expectedTotalCount) {
+    throw new Error('queryWithPredicates: totalCount changed during scan of ' + collectionId);
+  }
+  if (typeof result.hasNext !== 'function') {
+    throw new Error('queryWithPredicates: Missing hasNext() function on page ' + pageNumber + ' for ' + collectionId);
+  }
+
+  let hasNext: unknown;
+  try {
+    hasNext = result.hasNext();
+  } catch {
+    throw new Error('queryWithPredicates: hasNext() failed on page ' + pageNumber + ' for ' + collectionId);
+  }
+  if (typeof hasNext !== 'boolean') {
+    throw new Error('queryWithPredicates: Invalid hasNext() value on page ' + pageNumber + ' for ' + collectionId);
+  }
+  if (result.items.length > PAGE_SIZE) {
+    throw new Error('queryWithPredicates: Oversized page ' + pageNumber + ' for ' + collectionId);
+  }
+  return { items: result.items as WixDataItem[], totalCount: result.totalCount, hasNext };
+}
+
 /**
- * Query with genuine server-side predicates
- * 
- * IMPLEMENTATION NOTE:
- * BaseCrudService.getAll() does not expose server-side query predicates directly.
- * To achieve genuine database-level filtering, we:
- * 
- * 1. Paginate through the entire collection (not just first page)
- * 2. Apply predicates in-memory to ALL fetched records
- * 3. Collect ALL matching records across all pages
- * 4. FAIL CLOSED if any page fails, returns malformed data, or pagination is incomplete
- * 5. Apply result limit AFTER collecting all matches
- * 
- * This ensures:
- * - No matching records are missed (even if beyond first 1000)
- * - Multiple matches are detected and fail-closed
- * - Pagination semantics are correct
- * - Any incomplete scan results in authorization failure (fail-closed)
- * 
- * SECURITY GUARANTEE:
- * For authorization queries (memberId + status = 'active'):
- * - We retrieve ALL matching records across all pages
- * - We detect if 0, 1, or 2+ matches exist
- * - We fail closed if multiple active memberships exist
- * - We fail closed if any page fails or returns malformed data
- * - We never accept client-supplied override values
- * - We never return a previously found membership after an incomplete scan
- * 
- * @param collectionId - Collection ID to query
- * @param predicates - Array of predicates to apply (AND logic)
- * @param options - Pagination options (limit applies to final result, not fetch)
- * @returns PaginatedResult with ALL items matching predicates, or throws on failure
- * 
- * @example
- * // Query for active memberships for a specific member
- * const result = await queryWithPredicates('businessmembers', [
- *   { field: 'memberId', operator: 'eq', value: 'member-123' },
- *   { field: 'status', operator: 'eq', value: 'active' }
- * ], { limit: 2 });
- * 
- * // Result will have 0, 1, or 2+ items
- * // 0 → no active membership
- * // 1 → single active membership (use it)
- * // 2+ → multiple active memberships (fail closed)
- * // Throws on any page failure or malformed data
+ * Execute a database-filtered query and verify the entire matching result set.
+ * options.limit and options.skip control the returned slice only; all matching
+ * records are scanned so callers can detect ambiguous authorization state.
  */
 export async function queryWithPredicates<T extends WixDataItem>(
   collectionId: string,
   predicates: QueryPredicate[],
   options?: PaginationOptions
 ): Promise<PaginatedResult<T>> {
-  try {
-    const resultLimit = options?.limit ?? 2;
-    const skip = options?.skip ?? 0;
-    
-    // Collect ALL matching records across all pages
-    const allMatchingRecords: T[] = [];
-    let currentSkip = 0;
-    const pageSize = 100; // Fetch in pages of 100
-    let totalCollectionCount = 0;
-    let hasMorePages = true;
-    let pagesScanned = 0;
-    const maxPages = 200; // Safety limit: 200 pages = 20,000 records
-
-    // Paginate through entire collection to find all matches
-    while (hasMorePages && pagesScanned < maxPages) {
-      pagesScanned++;
-      
-      let result: PaginatedResult<T>;
-      try {
-        result = await BaseCrudService.getAll<T>(
-          collectionId,
-          [],
-          { limit: pageSize, skip: currentSkip }
-        );
-      } catch (pageError) {
-        console.error(
-          `queryWithPredicates: Database error on page ${pagesScanned} (skip=${currentSkip}) for ${collectionId}: ` +
-          `${pageError instanceof Error ? pageError.message : String(pageError)}`
-        );
-        // FAIL CLOSED: If we found matches but then hit an error, we cannot verify completeness
-        // Never return a previously found membership after an incomplete scan
-        if (allMatchingRecords.length > 0) {
-          throw new Error(
-            `queryWithPredicates: Incomplete scan for ${collectionId}. ` +
-            `Found ${allMatchingRecords.length} matches on page ${pagesScanned}, ` +
-            `but subsequent page failed. Cannot verify completeness. Failing closed.`
-          );
-        }
-        // If no matches found yet, rethrow the error
-        throw pageError;
-      }
-
-      // FAIL CLOSED: Validate result structure
-      if (!result) {
-        console.error(
-          `queryWithPredicates: Null result from getAll for ${collectionId} at skip=${currentSkip}`
-        );
-        if (allMatchingRecords.length > 0) {
-          throw new Error(
-            `queryWithPredicates: Incomplete scan for ${collectionId}. ` +
-            `Found ${allMatchingRecords.length} matches, but page ${pagesScanned} returned null. Failing closed.`
-          );
-        }
-        return {
-          items: [],
-          totalCount: 0,
-          hasNext: false,
-          currentPage: 0,
-          pageSize: resultLimit,
-          nextSkip: null,
-        };
-      }
-
-      // FAIL CLOSED: Validate items array
-      if (!Array.isArray(result.items)) {
-        console.error(
-          `queryWithPredicates: Invalid items array from getAll for ${collectionId} at skip=${currentSkip}. ` +
-          `Expected array, got: ${typeof result.items}`
-        );
-        if (allMatchingRecords.length > 0) {
-          throw new Error(
-            `queryWithPredicates: Incomplete scan for ${collectionId}. ` +
-            `Found ${allMatchingRecords.length} matches, but page ${pagesScanned} returned malformed data. Failing closed.`
-          );
-        }
-        return {
-          items: [],
-          totalCount: 0,
-          hasNext: false,
-          currentPage: 0,
-          pageSize: resultLimit,
-          nextSkip: null,
-        };
-      }
-
-      // FAIL CLOSED: Validate totalCount is a number
-      if (typeof result.totalCount !== 'number' || result.totalCount < 0) {
-        console.error(
-          `queryWithPredicates: Invalid totalCount from getAll for ${collectionId} at skip=${currentSkip}. ` +
-          `Expected non-negative number, got: ${result.totalCount}`
-        );
-        if (allMatchingRecords.length > 0) {
-          throw new Error(
-            `queryWithPredicates: Incomplete scan for ${collectionId}. ` +
-            `Found ${allMatchingRecords.length} matches, but page ${pagesScanned} returned invalid totalCount. Failing closed.`
-          );
-        }
-      }
-
-      totalCollectionCount = result.totalCount ?? 0;
-
-      // FAIL CLOSED: Validate hasNext is boolean
-      if (typeof result.hasNext !== 'boolean') {
-        console.error(
-          `queryWithPredicates: Invalid hasNext from getAll for ${collectionId} at skip=${currentSkip}. ` +
-          `Expected boolean, got: ${typeof result.hasNext}`
-        );
-        if (allMatchingRecords.length > 0) {
-          throw new Error(
-            `queryWithPredicates: Incomplete scan for ${collectionId}. ` +
-            `Found ${allMatchingRecords.length} matches, but page ${pagesScanned} returned invalid hasNext. Failing closed.`
-          );
-        }
-      }
-
-      // Apply predicates to all items in this page
-      const pageMatches = result.items.filter(item => {
-        return predicates.every(predicate => {
-          const fieldValue = (item as any)[predicate.field];
-          
-          // Validate field exists and has correct type
-          if (fieldValue === undefined || fieldValue === null) {
-            return false;
-          }
-          
-          switch (predicate.operator) {
-            case 'eq':
-              return fieldValue === predicate.value;
-            case 'ne':
-              return fieldValue !== predicate.value;
-            case 'gt':
-              return fieldValue > predicate.value;
-            case 'gte':
-              return fieldValue >= predicate.value;
-            case 'lt':
-              return fieldValue < predicate.value;
-            case 'lte':
-              return fieldValue <= predicate.value;
-            case 'contains':
-              return String(fieldValue).includes(String(predicate.value));
-            case 'startsWith':
-              return String(fieldValue).startsWith(String(predicate.value));
-            default:
-              console.warn(`queryWithPredicates: Unknown operator ${predicate.operator}`);
-              return false;
-          }
-        });
-      });
-
-      allMatchingRecords.push(...pageMatches);
-
-      // Check if there are more pages
-      hasMorePages = result.hasNext ?? false;
-      currentSkip += pageSize;
-
-      // Safety: Stop if we've already found more than the limit
-      // (we still need to continue to detect multiple matches)
-      if (allMatchingRecords.length > resultLimit + 10) {
-        // We've found enough to know there are multiple matches
-        // Continue one more page to be sure, then stop
-        if (allMatchingRecords.length > resultLimit + 100) {
-          break;
-        }
-      }
-    }
-
-    // FAIL CLOSED: Check if we hit the max pages limit
-    if (pagesScanned >= maxPages && hasMorePages) {
-      console.error(
-        `queryWithPredicates: Exceeded maximum pages (${maxPages}) for ${collectionId}. ` +
-        `Found ${allMatchingRecords.length} matches but scan incomplete.`
-      );
-      throw new Error(
-        `queryWithPredicates: Incomplete scan for ${collectionId}. ` +
-        `Exceeded maximum pages (${maxPages}). Found ${allMatchingRecords.length} matches but cannot verify completeness. Failing closed.`
-      );
-    }
-
-    // Apply result limit AFTER collecting all matches
-    const limitedItems = allMatchingRecords.slice(0, resultLimit);
-
-    // Build paginated result with correct semantics
-    const pageSize_result = resultLimit;
-    const currentPage = Math.floor(skip / pageSize_result);
-    const hasNext = allMatchingRecords.length > resultLimit;
-    const nextSkip = hasNext ? skip + pageSize_result : null;
-
-    console.debug(
-      `queryWithPredicates: Found ${allMatchingRecords.length} matches in ${collectionId} ` +
-      `(collection size: ${totalCollectionCount}, predicates: ${predicates.length}, pages scanned: ${pagesScanned})`
-    );
-
-    return {
-      items: limitedItems as T[],
-      totalCount: allMatchingRecords.length, // Correct: total matching records, not collection size
-      hasNext,
-      currentPage,
-      pageSize: pageSize_result,
-      nextSkip,
-    };
-  } catch (error) {
-    console.error(
-      `queryWithPredicates: Error querying ${collectionId}:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    throw error;
+  if (typeof collectionId !== 'string' || collectionId.trim() === '') {
+    throw new Error('queryWithPredicates: collectionId must be a non-empty string');
   }
+  if (!Array.isArray(predicates)) {
+    throw new Error('queryWithPredicates: predicates must be an array');
+  }
+
+  const resultLimit = options?.limit ?? 2;
+  const requestedSkip = options?.skip ?? 0;
+  if (!Number.isInteger(resultLimit) || resultLimit < 1 || resultLimit > 1000) {
+    throw new Error('queryWithPredicates: limit must be an integer between 1 and 1000');
+  }
+  if (!Number.isInteger(requestedSkip) || requestedSkip < 0) {
+    throw new Error('queryWithPredicates: skip must be a non-negative integer');
+  }
+
+  const allMatches: T[] = [];
+  const seenIds = new Set<string>();
+  let currentSkip = 0;
+  let expectedTotalCount: number | undefined;
+  let hasMore = true;
+  let pagesScanned = 0;
+
+  while (hasMore) {
+    if (pagesScanned >= MAX_PAGES) {
+      throw new Error('queryWithPredicates: Scan exceeded ' + MAX_PAGES + ' pages for ' + collectionId + '; refusing incomplete results');
+    }
+    pagesScanned++;
+
+    let query: any = items.query(collectionId);
+    for (const predicate of predicates) query = applyPredicate(query, predicate);
+
+    // Predicates are part of the Wix Data query, not client-side post-filtering.
+    const rawResult = await query.skip(currentSkip).limit(PAGE_SIZE).find({ returnTotalCount: true });
+    const page = validatePage(rawResult, collectionId, expectedTotalCount, pagesScanned);
+    if (expectedTotalCount === undefined) expectedTotalCount = page.totalCount;
+
+    for (const item of page.items) {
+      if (!item || typeof item !== 'object') {
+        throw new Error('queryWithPredicates: Invalid record on page ' + pagesScanned + ' for ' + collectionId);
+      }
+      const id = (item as any)._id;
+      if (typeof id === 'string' && id.length > 0) {
+        if (seenIds.has(id)) {
+          throw new Error('queryWithPredicates: Duplicate record id across pages for ' + collectionId);
+        }
+        seenIds.add(id);
+      }
+      allMatches.push(item as T);
+    }
+
+    const nextOffset = currentSkip + page.items.length;
+    if (page.hasNext && (page.items.length === 0 || nextOffset >= page.totalCount)) {
+      throw new Error('queryWithPredicates: Inconsistent pagination metadata on page ' + pagesScanned + ' for ' + collectionId);
+    }
+    if (!page.hasNext && nextOffset < page.totalCount) {
+      throw new Error('queryWithPredicates: Incomplete pagination on page ' + pagesScanned + ' for ' + collectionId);
+    }
+
+    hasMore = page.hasNext;
+    currentSkip = nextOffset;
+  }
+
+  if (expectedTotalCount === undefined) {
+    throw new Error('queryWithPredicates: No query result was obtained for ' + collectionId);
+  }
+  if (allMatches.length !== expectedTotalCount) {
+    throw new Error('queryWithPredicates: Scanned ' + allMatches.length + ' records but Wix reported ' + expectedTotalCount + ' for ' + collectionId);
+  }
+
+  const itemsForPage = allMatches.slice(requestedSkip, requestedSkip + resultLimit);
+  const hasNext = requestedSkip + itemsForPage.length < allMatches.length;
+
+  return {
+    items: itemsForPage as T[],
+    totalCount: allMatches.length,
+    hasNext,
+    currentPage: Math.floor(requestedSkip / resultLimit),
+    pageSize: resultLimit,
+    nextSkip: hasNext ? requestedSkip + resultLimit : null,
+  };
 }
