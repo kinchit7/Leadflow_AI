@@ -602,12 +602,12 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
   // ============================================================================
   describe('WORKSTREAM 5: Webhook Secret Initialization', () => {
     describe('Webhook secrets resolve correctly', () => {
-      it('should fail closed when webhook secret is missing', () => {
+      it('should fail closed when webhook secret is missing', async () => {
         // Temporarily clear the secret
         const originalSecret = process.env.WEBHOOK_SECRET;
         delete process.env.WEBHOOK_SECRET;
 
-        const result = verifyWebhookSignature(
+        const result = await verifyWebhookSignature(
           'generic',
           'test-body',
           'test-signature'
@@ -622,11 +622,11 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
         }
       });
 
-      it('should validate signature when secret is configured', () => {
+      it('should validate signature when secret is configured', async () => {
         // Set a test secret
         process.env.WEBHOOK_SECRET = 'test-secret';
 
-        const result = verifyWebhookSignature(
+        const result = await verifyWebhookSignature(
           'generic',
           'test-body',
           'invalid-signature'
