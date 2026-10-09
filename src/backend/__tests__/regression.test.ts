@@ -91,7 +91,7 @@ describe('PHASE 3F-B Regression Tests', () => {
     // freshness checks representative without bypassing the production path.
     vi.mocked(BaseCrudService.getAll).mockResolvedValue({
       items: [
-        { _id: 'bm-member-1', memberId: 'member-1', businessId: 'business-1', role: 'admin', status: 'active' },
+        { _id: 'bm-member-1', memberId: 'member-1', businessId: 'business-1', branchId: 'branch-1', role: 'admin', status: 'active' },
         { _id: 'bm-member-2', memberId: 'member-2', businessId: 'business-2', role: 'admin', status: 'active' },
       ],
       totalCount: 2, hasNext: false, currentPage: 0, pageSize: 2, nextSkip: null,
