@@ -123,6 +123,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockLead = {
@@ -145,6 +146,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockLead = {
@@ -164,6 +166,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const leadData = {
@@ -193,6 +196,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const existingLead = {
@@ -226,6 +230,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const mockLead = {
@@ -245,6 +250,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockLeads = [
@@ -280,6 +286,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockCustomer = {
@@ -301,6 +308,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const customerData = {
@@ -327,6 +335,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockCustomers = [
@@ -361,6 +370,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockOpp = {
@@ -382,6 +392,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const oppData = {
@@ -408,6 +419,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockOpps = [
@@ -442,6 +454,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'support',
+        _validatedAt: new Date(),
       };
 
       const mockTicket = {
@@ -463,6 +476,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'support',
+        _validatedAt: new Date(),
       };
 
       const ticketData = {
@@ -491,6 +505,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'support',
+        _validatedAt: new Date(),
       };
 
       const mockTickets = [
@@ -525,6 +540,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockFollowup = {
@@ -546,6 +562,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const followupData = {
@@ -573,6 +590,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockFollowups = [
@@ -607,6 +625,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const updates = {
@@ -628,6 +647,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         businessId: 'business-1',
         role: 'manager',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       const updates = {
@@ -646,6 +666,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const updates = {
@@ -672,6 +693,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'owner',
+        _validatedAt: new Date(),
       };
 
       const isAuthorized = validateDemoOperationAuthorization(authContext);
@@ -685,6 +707,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const isAuthorized = validateDemoOperationAuthorization(authContext);
@@ -698,6 +721,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const isAuthorized = validateDemoOperationAuthorization(authContext);
@@ -729,6 +753,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       // Create lead
@@ -787,6 +812,7 @@ describe('Service Integration Tests - Phase 3C', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockLead = {
