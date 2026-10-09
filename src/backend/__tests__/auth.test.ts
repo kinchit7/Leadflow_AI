@@ -101,6 +101,12 @@ vi.mock('../audit-service.web', () => ({
 describe('Authentication & Authorization (Phase 3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Authorization tests that focus on record ownership still need an active
+    // membership because production authorization revalidates context on each request.
+    vi.mocked(BaseCrudService.getAll).mockResolvedValue({
+      items: [{ _id: 'bm-default', memberId: 'member-1', businessId: 'business-1', role: 'sales', status: 'active' }],
+      totalCount: 1, hasNext: false, currentPage: 0, pageSize: 1, nextSkip: null,
+    } as any);
   });
 
   // ============================================================================
