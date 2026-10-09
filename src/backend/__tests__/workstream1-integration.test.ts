@@ -369,8 +369,9 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
         businessId,
       });
 
-      // Mock fresh context resolution
-      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+      // Concurrent requests each revalidate context; every call must see the same
+      // authoritative membership fixture rather than consuming a one-time mock.
+      vi.mocked(BaseCrudService.getAll).mockResolvedValue({
         items: [
           {
             _id: 'membership-1',
