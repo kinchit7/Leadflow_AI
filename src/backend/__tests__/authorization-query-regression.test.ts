@@ -542,4 +542,263 @@ describe('WORKSTREAM 1: Authorization Query Regression Tests', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('Regression Test 11: Records beyond first page are found', () => {
+    it('should find active membership on second page (skip=100)', async () => {
+      const targetMemberId = 'member-target';
+      const targetBusinessId = 'business-target';
+      
+      // First page: 100 unrelated memberships
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      // Second page: target membership at position 5
+      const page2: BusinessMembers[] = [];
+      for (let i = 0; i < 5; i++) {
+        page2.push({
+          _id: `bm-page2-other-${i}`,
+          memberId: `member-other-page2-${i}`,
+          businessId: `business-other-page2-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      const targetMembership: BusinessMembers = {
+        _id: 'bm-target',
+        memberId: targetMemberId,
+        businessId: targetBusinessId,
+        role: 'admin',
+        status: 'active',
+      };
+      
+      page2.push(targetMembership);
+      
+      // Mock pagination: first call returns page 1, second call returns page 2
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 206,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: page2,
+          totalCount: 206,
+          hasNext: false,
+          currentPage: 1,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should find the target membership on second page
+      expect(result).not.toBeNull();
+      expect(result?.memberId).toBe(targetMemberId);
+      expect(result?.businessId).toBe(targetBusinessId);
+      expect(result?.role).toBe('admin');
+    });
+  });
+
+  describe('Regression Test 12: Duplicate memberships across pages detected', () => {
+    it('should detect multiple active memberships split across pages', async () => {
+      const targetMemberId = 'member-target';
+      
+      // First page: 100 unrelated + 1 target membership
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-other-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      page1.push({
+        _id: 'bm-target-1',
+        memberId: targetMemberId,
+        businessId: 'business-1',
+        role: 'admin',
+        status: 'active',
+      });
+      
+      // Second page: another target membership
+      const page2: BusinessMembers[] = [
+        {
+          _id: 'bm-target-2',
+          memberId: targetMemberId,
+          businessId: 'business-2',
+          role: 'manager',
+          status: 'active',
+        },
+      ];
+      
+      // Mock pagination
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 202,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: page2,
+          totalCount: 202,
+          hasNext: false,
+          currentPage: 1,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should fail closed due to multiple active memberships
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('Regression Test 13: Cross-tenant access prevention', () => {
+    it('should not leak data from other tenants', async () => {
+      const targetMemberId = 'member-target';
+      const targetBusinessId = 'business-target';
+      
+      // Collection contains memberships from multiple tenants
+      const memberships: BusinessMembers[] = [
+        {
+          _id: 'bm-tenant1-1',
+          memberId: 'member-other-1',
+          businessId: 'business-tenant1-1',
+          role: 'admin',
+          status: 'active',
+        },
+        {
+          _id: 'bm-tenant2-1',
+          memberId: 'member-other-2',
+          businessId: 'business-tenant2-1',
+          role: 'admin',
+          status: 'active',
+        },
+        {
+          _id: 'bm-target',
+          memberId: targetMemberId,
+          businessId: targetBusinessId,
+          role: 'admin',
+          status: 'active',
+        },
+      ];
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: memberships,
+        totalCount: 3,
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should find only the target membership, not leak other tenants' data
+      expect(result).not.toBeNull();
+      expect(result?.businessId).toBe(targetBusinessId);
+      expect(result?.memberId).toBe(targetMemberId);
+    });
+  });
+
+  describe('Regression Test 14: Large collection handling', () => {
+    it('should handle collection with 1000+ records', async () => {
+      const targetMemberId = 'member-target';
+      const targetBusinessId = 'business-target';
+      
+      // Simulate large collection: 1200 records total
+      // Target membership at position 1050
+      const page1: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page1.push({
+          _id: `bm-page1-${i}`,
+          memberId: `member-other-${i}`,
+          businessId: `business-other-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      const page2: BusinessMembers[] = [];
+      for (let i = 0; i < 100; i++) {
+        page2.push({
+          _id: `bm-page2-${i}`,
+          memberId: `member-other-page2-${i}`,
+          businessId: `business-other-page2-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      const page3: BusinessMembers[] = [];
+      for (let i = 0; i < 50; i++) {
+        page3.push({
+          _id: `bm-page3-other-${i}`,
+          memberId: `member-other-page3-${i}`,
+          businessId: `business-other-page3-${i}`,
+          role: 'manager',
+          status: 'active',
+        });
+      }
+      
+      const targetMembership: BusinessMembers = {
+        _id: 'bm-target',
+        memberId: targetMemberId,
+        businessId: targetBusinessId,
+        role: 'admin',
+        status: 'active',
+      };
+      
+      page3.push(targetMembership);
+      
+      // Mock pagination for 3 pages
+      vi.mocked(BaseCrudService.getAll)
+        .mockResolvedValueOnce({
+          items: page1,
+          totalCount: 1200,
+          hasNext: true,
+          currentPage: 0,
+          pageSize: 100,
+          nextSkip: 100,
+        } as any)
+        .mockResolvedValueOnce({
+          items: page2,
+          totalCount: 1200,
+          hasNext: true,
+          currentPage: 1,
+          pageSize: 100,
+          nextSkip: 200,
+        } as any)
+        .mockResolvedValueOnce({
+          items: page3,
+          totalCount: 1200,
+          hasNext: false,
+          currentPage: 2,
+          pageSize: 100,
+        } as any);
+      
+      const result = await resolveAuthContext(targetMemberId);
+      
+      // Should find the target membership even in large collection
+      expect(result).not.toBeNull();
+      expect(result?.memberId).toBe(targetMemberId);
+      expect(result?.businessId).toBe(targetBusinessId);
+    });
+  });
 });
