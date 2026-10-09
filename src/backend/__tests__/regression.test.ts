@@ -141,12 +141,14 @@ describe('PHASE 3F-B Regression Tests', () => {
       memberId: 'member-1',
       businessId: 'business-1',
       role: 'admin',
+      _validatedAt: new Date(),
     } as AuthContext;
 
     const authContext2 = {
       memberId: 'member-2',
       businessId: 'business-2',
       role: 'admin',
+      _validatedAt: new Date(),
     } as AuthContext;
 
     it('should deny read access to record from different business', async () => {
