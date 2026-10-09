@@ -33,6 +33,7 @@ import {
 } from '../webhook-security.web';
 import { BaseCrudService } from '@/integrations/cms';
 import { Leads, Opportunities } from '@/entities';
+import { logProtectedFieldOverrideAttempt } from '../audit-service.web';
 
 // Mock BaseCrudService
 vi.mock('@/integrations/cms', () => ({
@@ -667,7 +668,7 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
         };
 
         // Mock audit function to return undefined
-        vi.mocked(require('../audit-service.web').logProtectedFieldOverrideAttempt).mockReturnValueOnce(undefined);
+        vi.mocked(logProtectedFieldOverrideAttempt).mockReturnValueOnce(undefined);
 
         const sanitized = sanitizeUpdatePayload(updates, authContext);
 
@@ -688,7 +689,7 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
         };
 
         // Mock audit function to return Promise
-        vi.mocked(require('../audit-service.web').logProtectedFieldOverrideAttempt).mockResolvedValueOnce(undefined);
+        vi.mocked(logProtectedFieldOverrideAttempt).mockResolvedValueOnce(undefined);
 
         const sanitized = sanitizeUpdatePayload(updates, authContext);
 
