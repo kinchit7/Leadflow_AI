@@ -368,7 +368,7 @@ describe('PHASE 3F-B Regression Tests', () => {
 
     it('should reject fractional limit values', () => {
       const result = validatePaginationParams(50.5, 0);
-      expect(result.limit).toBe(50.5 > MAX_PAGE_SIZE ? MAX_PAGE_SIZE : 50.5);
+      expect(result.limit).toBe(MIN_PAGE_SIZE);
     });
 
     it('should reject NaN limit values', () => {
