@@ -344,6 +344,7 @@ describe('Context Integrity - PHASE 3F-C', () => {
               _id: 'membership-1',
               memberId,
               businessId: 'business-1',
+              role: 'manager',
               status: 'active',
             },
           ],
@@ -485,6 +486,7 @@ describe('Context Integrity - PHASE 3F-C', () => {
           _id: `membership-${i}`,
           memberId,
           businessId: `business-${i}`,
+          role: 'manager',
           status: i === 0 ? 'active' : 'inactive',
         }));
 
