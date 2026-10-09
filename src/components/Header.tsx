@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMember } from '@/integrations';
+import DemoModeToggle from '@/components/DemoModeToggle';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -207,6 +208,9 @@ export default function Header() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Demo controls are backend-authorized and fail closed for non-admin users. */}
+            <DemoModeToggle />
 
             {/* User Profile */}
             <DropdownMenu>

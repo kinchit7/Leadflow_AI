@@ -80,7 +80,7 @@ vi.mock('../wix-data-query.web', () => ({
     
     return {
       items: filteredItems,
-      totalCount: result.totalCount,
+      totalCount: filteredItems.length,
       hasNext: false,
       currentPage: 0,
       pageSize: options?.limit ?? 50,
@@ -101,6 +101,12 @@ vi.mock('../audit-service.web', () => ({
 describe('Authentication & Authorization (Phase 3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Authorization tests that focus on record ownership still need an active
+    // membership because production authorization revalidates context on each request.
+    vi.mocked(BaseCrudService.getAll).mockResolvedValue({
+      items: [{ _id: 'bm-default', memberId: 'member-1', businessId: 'business-1', role: 'sales', status: 'active' }],
+      totalCount: 1, hasNext: false, currentPage: 0, pageSize: 1, nextSkip: null,
+    } as any);
   });
 
   // ============================================================================
@@ -300,6 +306,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       expect(hasRole(authContext, ['admin', 'owner'])).toBe(true);
@@ -310,6 +317,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       expect(hasRole(authContext, ['admin', 'owner'])).toBe(false);
@@ -319,6 +327,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
       const authContext: AuthContext = {
         memberId: 'member-1',
         businessId: 'business-1',
+        _validatedAt: new Date(),
       };
 
       expect(hasRole(authContext, ['admin', 'owner'])).toBe(false);
@@ -329,6 +338,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'ADMIN',
+        _validatedAt: new Date(),
       };
 
       expect(hasRole(authContext, ['admin'])).toBe(true);
@@ -342,6 +352,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         businessId: 'business-1',
         role: 'owner',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeBranchAccess(authContext, 'branch-2')).toBe(true);
@@ -353,6 +364,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         businessId: 'business-1',
         role: 'admin',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeBranchAccess(authContext, 'branch-2')).toBe(true);
@@ -364,6 +376,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         businessId: 'business-1',
         role: 'manager',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeBranchAccess(authContext, 'branch-1')).toBe(true);
@@ -375,6 +388,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         businessId: 'business-1',
         role: 'manager',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeBranchAccess(authContext, 'branch-2')).toBe(false);
@@ -387,6 +401,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'owner',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeRoleAction(authContext, 'delete')).toBe(true);
@@ -398,6 +413,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeRoleAction(authContext, 'delete')).toBe(false);
@@ -408,6 +424,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       expect(authorizeRoleAction(authContext, 'write')).toBe(true);
@@ -424,6 +441,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockRecord = {
@@ -443,6 +461,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockRecord = {
@@ -462,6 +481,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       vi.mocked(BaseCrudService.getById).mockResolvedValueOnce(null);
@@ -477,6 +497,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockRecord = {
@@ -496,6 +517,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'sales',
+        _validatedAt: new Date(),
       };
 
       const mockRecord = {
@@ -517,6 +539,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const mockRecord = {
@@ -542,6 +565,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'owner',
+        _validatedAt: new Date(),
       };
 
       const filter = getTenantFilter(authContext);
@@ -554,6 +578,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         businessId: 'business-1',
         role: 'manager',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       const filter = getTenantFilter(authContext);
@@ -567,6 +592,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         businessId: 'business-1',
         role: 'admin',
         branchId: 'branch-1',
+        _validatedAt: new Date(),
       };
 
       const filter = getTenantFilter(authContext);
@@ -585,6 +611,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const updates = {
@@ -602,6 +629,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const updates = {
@@ -619,6 +647,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const updates = {
@@ -636,6 +665,7 @@ describe('Authentication & Authorization (Phase 3)', () => {
         memberId: 'member-1',
         businessId: 'business-1',
         role: 'admin',
+        _validatedAt: new Date(),
       };
 
       const updates = {

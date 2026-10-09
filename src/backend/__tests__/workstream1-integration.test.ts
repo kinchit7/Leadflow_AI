@@ -34,6 +34,42 @@ vi.mock('@/integrations/cms', () => ({
   },
 }));
 
+// Test-only adapter: production query semantics are covered by wix-data-query-regression.test.ts.
+vi.mock('../wix-data-query.web', () => ({
+  queryWithPredicates: vi.fn(async (collectionId: string, predicates: any[], options: any = {}) => {
+    const result = await BaseCrudService.getAll(collectionId, [], options);
+    if (!result || !Array.isArray(result.items)) {
+      throw new Error('Malformed test fixture returned by BaseCrudService.getAll');
+    }
+    const matches = result.items.filter((item: any) => predicates.every((p: any) => {
+      const actual = item?.[p.field];
+      switch (p.operator) {
+        case 'eq': return actual === p.value;
+        case 'ne': return actual !== p.value;
+        case 'gt': return actual > p.value;
+        case 'gte': return actual >= p.value;
+        case 'lt': return actual < p.value;
+        case 'lte': return actual <= p.value;
+        case 'contains': return String(actual ?? '').includes(String(p.value));
+        case 'startsWith': return String(actual ?? '').startsWith(String(p.value));
+        default: throw new Error('Unsupported test predicate: ' + p.operator);
+      }
+    }));
+    const skip = options.skip ?? 0;
+    const limit = options.limit ?? 2;
+    const page = matches.slice(skip, skip + limit);
+    return {
+      items: page,
+      totalCount: matches.length,
+      hasNext: skip + page.length < matches.length,
+      currentPage: Math.floor(skip / limit),
+      pageSize: limit,
+      nextSkip: skip + page.length < matches.length ? skip + limit : null,
+    };
+  }),
+}));
+
+
 // Mock audit service
 vi.mock('../audit-service.web', () => ({
   logMultipleMembershipDetected: vi.fn(),
@@ -46,6 +82,12 @@ vi.mock('../audit-service.web', () => ({
 describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(BaseCrudService.getAll).mockReset();
+    vi.mocked(BaseCrudService.getById)?.mockReset?.();
+    vi.mocked(BaseCrudService.getAll).mockResolvedValue({
+      items: [{ _id: 'bm-member-123', memberId: 'member-123', businessId: 'business-123', role: 'manager', status: 'active' }],
+      totalCount: 1, hasNext: false, currentPage: 0, pageSize: 1, nextSkip: null,
+    } as any);
   });
 
   afterEach(() => {
@@ -283,8 +325,9 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
         businessId,
       });
 
-      // Mock fresh context resolution
-      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+      // Each concurrent authorization call revalidates membership; keep the same
+      // authoritative membership available to all three calls.
+      vi.mocked(BaseCrudService.getAll).mockResolvedValue({
         items: [
           {
             _id: 'membership-1',
@@ -326,8 +369,9 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
         businessId,
       });
 
-      // Mock fresh context resolution
-      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+      // Concurrent requests each revalidate context; every call must see the same
+      // authoritative membership fixture rather than consuming a one-time mock.
+      vi.mocked(BaseCrudService.getAll).mockResolvedValue({
         items: [
           {
             _id: 'membership-1',
@@ -577,7 +621,7 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
       });
 
       // Mock fresh context resolution
-      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+      vi.mocked(BaseCrudService.getAll).mockResolvedValue({
         items: [
           {
             _id: 'membership-1',

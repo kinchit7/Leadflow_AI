@@ -33,6 +33,7 @@ import {
 } from '../webhook-security.web';
 import { BaseCrudService } from '@/integrations/cms';
 import { Leads, Opportunities } from '@/entities';
+import { logProtectedFieldOverrideAttempt } from '../audit-service.web';
 
 // Mock BaseCrudService
 vi.mock('@/integrations/cms', () => ({
@@ -44,6 +45,42 @@ vi.mock('@/integrations/cms', () => ({
     delete: vi.fn(),
   },
 }));
+
+// Test-only adapter: production query semantics are covered by wix-data-query-regression.test.ts.
+vi.mock('../wix-data-query.web', () => ({
+  queryWithPredicates: vi.fn(async (collectionId: string, predicates: any[], options: any = {}) => {
+    const result = await BaseCrudService.getAll(collectionId, [], options);
+    if (!result || !Array.isArray(result.items)) {
+      throw new Error('Malformed test fixture returned by BaseCrudService.getAll');
+    }
+    const matches = result.items.filter((item: any) => predicates.every((p: any) => {
+      const actual = item?.[p.field];
+      switch (p.operator) {
+        case 'eq': return actual === p.value;
+        case 'ne': return actual !== p.value;
+        case 'gt': return actual > p.value;
+        case 'gte': return actual >= p.value;
+        case 'lt': return actual < p.value;
+        case 'lte': return actual <= p.value;
+        case 'contains': return String(actual ?? '').includes(String(p.value));
+        case 'startsWith': return String(actual ?? '').startsWith(String(p.value));
+        default: throw new Error('Unsupported test predicate: ' + p.operator);
+      }
+    }));
+    const skip = options.skip ?? 0;
+    const limit = options.limit ?? 2;
+    const page = matches.slice(skip, skip + limit);
+    return {
+      items: page,
+      totalCount: matches.length,
+      hasNext: skip + page.length < matches.length,
+      currentPage: Math.floor(skip / limit),
+      pageSize: limit,
+      nextSkip: skip + page.length < matches.length ? skip + limit : null,
+    };
+  }),
+}));
+
 
 // Mock audit service
 vi.mock('../audit-service.web', () => ({
@@ -565,12 +602,12 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
   // ============================================================================
   describe('WORKSTREAM 5: Webhook Secret Initialization', () => {
     describe('Webhook secrets resolve correctly', () => {
-      it('should fail closed when webhook secret is missing', () => {
+      it('should fail closed when webhook secret is missing', async () => {
         // Temporarily clear the secret
         const originalSecret = process.env.WEBHOOK_SECRET;
         delete process.env.WEBHOOK_SECRET;
 
-        const result = verifyWebhookSignature(
+        const result = await verifyWebhookSignature(
           'generic',
           'test-body',
           'test-signature'
@@ -585,11 +622,11 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
         }
       });
 
-      it('should validate signature when secret is configured', () => {
+      it('should validate signature when secret is configured', async () => {
         // Set a test secret
         process.env.WEBHOOK_SECRET = 'test-secret';
 
-        const result = verifyWebhookSignature(
+        const result = await verifyWebhookSignature(
           'generic',
           'test-body',
           'invalid-signature'
@@ -631,7 +668,7 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
         };
 
         // Mock audit function to return undefined
-        vi.mocked(require('../audit-service.web').logProtectedFieldOverrideAttempt).mockReturnValueOnce(undefined);
+        vi.mocked(logProtectedFieldOverrideAttempt).mockReturnValueOnce(undefined);
 
         const sanitized = sanitizeUpdatePayload(updates, authContext);
 
@@ -652,7 +689,7 @@ describe('SECURITY REMEDIATION - All Workstreams', () => {
         };
 
         // Mock audit function to return Promise
-        vi.mocked(require('../audit-service.web').logProtectedFieldOverrideAttempt).mockResolvedValueOnce(undefined);
+        vi.mocked(logProtectedFieldOverrideAttempt).mockResolvedValueOnce(undefined);
 
         const sanitized = sanitizeUpdatePayload(updates, authContext);
 

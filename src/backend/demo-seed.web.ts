@@ -55,9 +55,9 @@ export async function seedDemoTenant(
 ): Promise<{ created: number; skipped: number }> {
   try {
     // PHASE 3C: Validate authorization
-    if (!validateDemoOperationAuthorization(authContext)) {
+    if (!authContext || !validateDemoOperationAuthorization(authContext)) {
       console.error('seedDemoTenant: Unauthorized demo seed operation');
-      return { created: 0, skipped: 0 };
+      throw new Error('Demo initialization requires an authorized owner/admin context.');
     }
 
     let created = 0;
@@ -65,7 +65,7 @@ export async function seedDemoTenant(
 
     // Check if demo data already exists
     const existingCustomers = await BaseCrudService.getAll<Customers>('customers');
-    const demoCustomersExist = existingCustomers.items?.some(c => isDemoRecord(c));
+    const demoCustomersExist = existingCustomers.items?.some(c => isDemoRecord(c) && c.businessId === authContext.businessId);
 
     if (demoCustomersExist) {
       console.log('Demo data already exists, skipping seed');
@@ -83,6 +83,7 @@ export async function seedDemoTenant(
         city: 'San Francisco',
         notes: 'Interested in residential properties',
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
       {
@@ -94,6 +95,7 @@ export async function seedDemoTenant(
         city: 'San Francisco',
         notes: 'Looking for commercial investment',
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
       {
@@ -105,6 +107,7 @@ export async function seedDemoTenant(
         city: 'Oakland',
         notes: 'First-time homebuyer',
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
     ];
@@ -130,6 +133,7 @@ export async function seedDemoTenant(
         timeline: 'Within 30 days',
         nextFollowUp: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
       {
@@ -146,6 +150,7 @@ export async function seedDemoTenant(
         timeline: 'Within 60 days',
         nextFollowUp: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
       {
@@ -162,6 +167,7 @@ export async function seedDemoTenant(
         timeline: 'Urgent',
         nextFollowUp: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000),
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
     ];
@@ -184,6 +190,7 @@ export async function seedDemoTenant(
         owner: 'demo-agent',
         probability: 75,
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
       {
@@ -197,6 +204,7 @@ export async function seedDemoTenant(
         owner: 'demo-agent',
         probability: 60,
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
     ];
@@ -219,6 +227,7 @@ export async function seedDemoTenant(
         notes: 'Confirm availability for weekend showing',
         createdAt: new Date(),
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
       {
@@ -232,6 +241,7 @@ export async function seedDemoTenant(
         notes: 'Follow up on inspection findings',
         createdAt: new Date(),
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
     ];
@@ -252,6 +262,7 @@ export async function seedDemoTenant(
         priority: 'Medium',
         createdAt: new Date(),
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
     ];
@@ -273,6 +284,7 @@ export async function seedDemoTenant(
         unreadMessages: 0,
         isPinned: true,
         isDemo: DEMO_FLAG,
+        businessId: authContext.businessId,
         tenantId: DEMO_TENANT_ID,
       },
     ];
@@ -301,16 +313,16 @@ export async function resetDemoTenant(
 ): Promise<{ deleted: number }> {
   try {
     // PHASE 3C: Validate authorization
-    if (!validateDemoOperationAuthorization(authContext)) {
+    if (!authContext || !validateDemoOperationAuthorization(authContext)) {
       console.error('resetDemoTenant: Unauthorized demo reset operation');
-      return { deleted: 0 };
+      throw new Error('Demo reset requires an authorized owner/admin context.');
     }
 
     let deleted = 0;
 
     // Delete demo customers (and cascade deletes related records)
     const customers = await BaseCrudService.getAll<Customers>('customers');
-    const demoCustomers = customers.items?.filter(c => isDemoRecord(c)) || [];
+    const demoCustomers = customers.items?.filter(c => isDemoRecord(c) && c.businessId === authContext.businessId) || [];
 
     for (const customer of demoCustomers) {
       await BaseCrudService.delete('customers', customer._id);
@@ -319,7 +331,7 @@ export async function resetDemoTenant(
 
     // Delete demo leads
     const leads = await BaseCrudService.getAll<Leads>('leads');
-    const demoLeads = leads.items?.filter(l => isDemoRecord(l)) || [];
+    const demoLeads = leads.items?.filter(l => isDemoRecord(l) && l.businessId === authContext.businessId) || [];
 
     for (const lead of demoLeads) {
       await BaseCrudService.delete('leads', lead._id);
@@ -328,7 +340,7 @@ export async function resetDemoTenant(
 
     // Delete demo opportunities
     const opportunities = await BaseCrudService.getAll<Opportunities>('opportunities');
-    const demoOpportunities = opportunities.items?.filter(o => isDemoRecord(o)) || [];
+    const demoOpportunities = opportunities.items?.filter(o => isDemoRecord(o) && o.businessId === authContext.businessId) || [];
 
     for (const opportunity of demoOpportunities) {
       await BaseCrudService.delete('opportunities', opportunity._id);
@@ -337,7 +349,7 @@ export async function resetDemoTenant(
 
     // Delete demo follow-ups
     const followups = await BaseCrudService.getAll<Followups>('followups');
-    const demoFollowups = followups.items?.filter(f => isDemoRecord(f)) || [];
+    const demoFollowups = followups.items?.filter(f => isDemoRecord(f) && f.businessId === authContext.businessId) || [];
 
     for (const followup of demoFollowups) {
       await BaseCrudService.delete('followups', followup._id);
@@ -346,7 +358,7 @@ export async function resetDemoTenant(
 
     // Delete demo support tickets
     const tickets = await BaseCrudService.getAll<SupportTickets>('tickets');
-    const demoTickets = tickets.items?.filter(t => isDemoRecord(t)) || [];
+    const demoTickets = tickets.items?.filter(t => isDemoRecord(t) && t.businessId === authContext.businessId) || [];
 
     for (const ticket of demoTickets) {
       await BaseCrudService.delete('tickets', ticket._id);
@@ -355,7 +367,7 @@ export async function resetDemoTenant(
 
     // Delete demo conversations
     const conversations = await BaseCrudService.getAll<Conversations>('conversations');
-    const demoConversations = conversations.items?.filter(c => isDemoRecord(c)) || [];
+    const demoConversations = conversations.items?.filter(c => isDemoRecord(c) && c.businessId === authContext.businessId) || [];
 
     for (const conversation of demoConversations) {
       await BaseCrudService.delete('conversations', conversation._id);

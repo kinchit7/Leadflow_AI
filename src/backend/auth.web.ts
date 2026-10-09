@@ -170,17 +170,17 @@ export async function resolveAuthContext(memberId: string, skipCache: boolean = 
       ? membership.role.toLowerCase()
       : undefined;
 
-    // WORKSTREAM 1: Validate role is in allowed set
-    if (role && !VALID_ROLES.includes(role as UserRole)) {
-      console.warn(`resolveAuthContext: Invalid role '${role}' for member ${memberId}`);
-      // Continue with undefined role rather than failing - role is optional
+    // Deny by default: a membership with a missing or invalid role is not authorized.
+    if (!role || !VALID_ROLES.includes(role as UserRole)) {
+      console.warn(`resolveAuthContext: Missing or invalid role for member ${memberId}`);
+      return null;
     }
 
     const authContext: AuthContext = {
       memberId,
       businessId: membership.businessId,
       branchId,
-      role: role as UserRole | undefined,
+      role: role as UserRole,
     };
 
     // PHASE 3F-C: Add validation timestamp to detect stale contexts
@@ -231,6 +231,17 @@ export async function validateContextFreshness(
     if (!freshContext) {
       console.warn(
         `validateContextFreshness: Membership revoked or status changed for member ${authContext.memberId}`
+      );
+      return false;
+    }
+
+    // Compare every authorization-bearing tenant and scope field against the fresh,
+    // server-resolved membership. A client-supplied/stale businessId must never survive
+    // freshness validation even when memberId and role still match.
+    if (freshContext.businessId !== authContext.businessId) {
+      console.warn(
+        `validateContextFreshness: Business changed for member ${authContext.memberId} ` +
+        `(${authContext.businessId} -> ${freshContext.businessId})`
       );
       return false;
     }
