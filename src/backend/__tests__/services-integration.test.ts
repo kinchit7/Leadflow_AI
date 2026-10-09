@@ -72,6 +72,42 @@ vi.mock('@/integrations/cms', () => ({
   },
 }));
 
+// Test-only adapter: production query semantics are covered by wix-data-query-regression.test.ts.
+vi.mock('../wix-data-query.web', () => ({
+  queryWithPredicates: vi.fn(async (collectionId: string, predicates: any[], options: any = {}) => {
+    const result = await BaseCrudService.getAll(collectionId, [], options);
+    if (!result || !Array.isArray(result.items)) {
+      throw new Error('Malformed test fixture returned by BaseCrudService.getAll');
+    }
+    const matches = result.items.filter((item: any) => predicates.every((p: any) => {
+      const actual = item?.[p.field];
+      switch (p.operator) {
+        case 'eq': return actual === p.value;
+        case 'ne': return actual !== p.value;
+        case 'gt': return actual > p.value;
+        case 'gte': return actual >= p.value;
+        case 'lt': return actual < p.value;
+        case 'lte': return actual <= p.value;
+        case 'contains': return String(actual ?? '').includes(String(p.value));
+        case 'startsWith': return String(actual ?? '').startsWith(String(p.value));
+        default: throw new Error('Unsupported test predicate: ' + p.operator);
+      }
+    }));
+    const skip = options.skip ?? 0;
+    const limit = options.limit ?? 2;
+    const page = matches.slice(skip, skip + limit);
+    return {
+      items: page,
+      totalCount: matches.length,
+      hasNext: skip + page.length < matches.length,
+      currentPage: Math.floor(skip / limit),
+      pageSize: limit,
+      nextSkip: skip + page.length < matches.length ? skip + limit : null,
+    };
+  }),
+}));
+
+
 describe('Service Integration Tests - Phase 3C', () => {
   beforeEach(() => {
     vi.clearAllMocks();
