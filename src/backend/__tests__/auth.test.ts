@@ -101,6 +101,12 @@ vi.mock('../audit-service.web', () => ({
 describe('Authentication & Authorization (Phase 3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Prevent one-shot CRUD mock responses leaking into the next test.
+    vi.mocked(BaseCrudService.getAll).mockReset();
+    vi.mocked(BaseCrudService.getById)?.mockReset?.();
+    vi.mocked(BaseCrudService.create)?.mockReset?.();
+    vi.mocked(BaseCrudService.update)?.mockReset?.();
+    vi.mocked(BaseCrudService.delete)?.mockReset?.();
     // Authorization tests that focus on record ownership still need an active
     // membership because production authorization revalidates context on each request.
     vi.mocked(BaseCrudService.getAll).mockResolvedValue({
