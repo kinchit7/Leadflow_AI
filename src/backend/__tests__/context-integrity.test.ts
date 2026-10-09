@@ -71,12 +71,6 @@ vi.mock('../audit-service.web', () => ({
 describe('Context Integrity - PHASE 3F-C', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Prevent one-shot CRUD mock responses leaking into the next test.
-    vi.mocked(BaseCrudService.getAll).mockReset();
-    vi.mocked(BaseCrudService.getById)?.mockReset?.();
-    vi.mocked(BaseCrudService.create)?.mockReset?.();
-    vi.mocked(BaseCrudService.update)?.mockReset?.();
-    vi.mocked(BaseCrudService.delete)?.mockReset?.();
   });
 
   describe('Workstream C: Multiple-Membership Race Condition', () => {
