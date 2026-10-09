@@ -235,6 +235,17 @@ export async function validateContextFreshness(
       return false;
     }
 
+    // Compare every authorization-bearing tenant and scope field against the fresh,
+    // server-resolved membership. A client-supplied/stale businessId must never survive
+    // freshness validation even when memberId and role still match.
+    if (freshContext.businessId !== authContext.businessId) {
+      console.warn(
+        `validateContextFreshness: Business changed for member ${authContext.memberId} ` +
+        `(${authContext.businessId} -> ${freshContext.businessId})`
+      );
+      return false;
+    }
+
     // Check if role or branch changed
     if (freshContext.role !== authContext.role) {
       console.warn(
