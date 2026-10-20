@@ -615,7 +615,7 @@ describe('PHASE 3F-C Workstream 1: Context Integrity Integration', () => {
       };
 
       // Mock record exists
-      vi.mocked(BaseCrudService.getById).mockResolvedValueOnce({
+      vi.mocked(BaseCrudService.getById).mockResolvedValue({
         _id: recordId,
         businessId,
       });
