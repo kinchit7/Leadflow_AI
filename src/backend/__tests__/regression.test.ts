@@ -39,6 +39,42 @@ vi.mock('@/integrations/cms', () => ({
   },
 }));
 
+// Test-only adapter: production query semantics are covered by wix-data-query-regression.test.ts.
+vi.mock('../wix-data-query.web', () => ({
+  queryWithPredicates: vi.fn(async (collectionId: string, predicates: any[], options: any = {}) => {
+    const result = await BaseCrudService.getAll(collectionId, [], options);
+    if (!result || !Array.isArray(result.items)) {
+      throw new Error('Malformed test fixture returned by BaseCrudService.getAll');
+    }
+    const matches = result.items.filter((item: any) => predicates.every((p: any) => {
+      const actual = item?.[p.field];
+      switch (p.operator) {
+        case 'eq': return actual === p.value;
+        case 'ne': return actual !== p.value;
+        case 'gt': return actual > p.value;
+        case 'gte': return actual >= p.value;
+        case 'lt': return actual < p.value;
+        case 'lte': return actual <= p.value;
+        case 'contains': return String(actual ?? '').includes(String(p.value));
+        case 'startsWith': return String(actual ?? '').startsWith(String(p.value));
+        default: throw new Error('Unsupported test predicate: ' + p.operator);
+      }
+    }));
+    const skip = options.skip ?? 0;
+    const limit = options.limit ?? 2;
+    const page = matches.slice(skip, skip + limit);
+    return {
+      items: page,
+      totalCount: matches.length,
+      hasNext: skip + page.length < matches.length,
+      currentPage: Math.floor(skip / limit),
+      pageSize: limit,
+      nextSkip: skip + page.length < matches.length ? skip + limit : null,
+    };
+  }),
+}));
+
+
 vi.mock('../audit-service.web', () => ({
   logAuditEvent: vi.fn(),
   logAuthorizationFailure: vi.fn(),
@@ -51,6 +87,15 @@ vi.mock('../audit-service.web', () => ({
 describe('PHASE 3F-B Regression Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Test tenant-access cases use synthetic admin contexts; keep membership
+    // freshness checks representative without bypassing the production path.
+    vi.mocked(BaseCrudService.getAll).mockResolvedValue({
+      items: [
+        { _id: 'bm-member-1', memberId: 'member-1', businessId: 'business-1', branchId: 'branch-1', role: 'admin', status: 'active' },
+        { _id: 'bm-member-2', memberId: 'member-2', businessId: 'business-2', role: 'admin', status: 'active' },
+      ],
+      totalCount: 2, hasNext: false, currentPage: 0, pageSize: 2, nextSkip: null,
+    } as any);
   });
 
   // ============================================================================
@@ -96,12 +141,14 @@ describe('PHASE 3F-B Regression Tests', () => {
       memberId: 'member-1',
       businessId: 'business-1',
       role: 'admin',
+      _validatedAt: new Date(),
     } as AuthContext;
 
     const authContext2 = {
       memberId: 'member-2',
       businessId: 'business-2',
       role: 'admin',
+      _validatedAt: new Date(),
     } as AuthContext;
 
     it('should deny read access to record from different business', async () => {
@@ -243,6 +290,7 @@ describe('PHASE 3F-B Regression Tests', () => {
         businessId: 'business-1',
         branchId: 'branch-1',
         role: 'manager',
+        _validatedAt: new Date(),
       } as AuthContext;
 
       const authorized = authorizeBranchAccess(authContext, 'branch-2');
@@ -321,7 +369,7 @@ describe('PHASE 3F-B Regression Tests', () => {
 
     it('should reject fractional limit values', () => {
       const result = validatePaginationParams(50.5, 0);
-      expect(result.limit).toBe(50.5 > MAX_PAGE_SIZE ? MAX_PAGE_SIZE : 50.5);
+      expect(result.limit).toBe(MIN_PAGE_SIZE);
     });
 
     it('should reject NaN limit values', () => {

@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resolveAuthContext, AuthContext } from '../auth.web';
 import { BaseCrudService } from '@/integrations/cms';
 import { BusinessMembers } from '@/entities';
+import { queryWithPredicates } from '../wix-data-query.web';
 
 // Mock BaseCrudService
 vi.mock('@/integrations/cms', () => ({
@@ -22,6 +23,12 @@ vi.mock('@/integrations/cms', () => ({
     getAll: vi.fn(),
     getById: vi.fn(),
   },
+}));
+
+// The authorization tests use a deterministic query adapter mock. The dedicated
+// wix-data-query regression suite tests the real server-side query-builder adapter.
+vi.mock('../wix-data-query.web', () => ({
+  queryWithPredicates: vi.fn(),
 }));
 
 // Mock audit service
@@ -36,6 +43,51 @@ vi.mock('../audit-service.web', () => ({
 describe('WORKSTREAM 1: Authorization Query Regression Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(queryWithPredicates).mockImplementation(async (collectionId: any, predicates: any[], options: any = {}) => {
+      const allItems: any[] = [];
+      let skip = 0;
+      let pageCount = 0;
+      while (pageCount < 200) {
+        pageCount++;
+        const page: any = await BaseCrudService.getAll(collectionId, [], { limit: 100, skip });
+        if (!page || !Array.isArray(page.items)) throw new Error('Malformed test page items');
+        if (typeof page.totalCount !== 'number' || !Number.isFinite(page.totalCount) || !Number.isInteger(page.totalCount) || page.totalCount < 0) {
+          throw new Error('Malformed test totalCount');
+        }
+        if (typeof page.hasNext !== 'boolean') throw new Error('Malformed test hasNext');
+        const matches = page.items.filter((item: any) => predicates.every((predicate: any) => {
+          const value = item?.[predicate.field];
+          switch (predicate.operator) {
+            case 'eq': return value === predicate.value;
+            case 'ne': return value !== predicate.value;
+            case 'gt': return value > predicate.value;
+            case 'gte': return value >= predicate.value;
+            case 'lt': return value < predicate.value;
+            case 'lte': return value <= predicate.value;
+            case 'contains': return String(value ?? '').includes(String(predicate.value));
+            case 'startsWith': return String(value ?? '').startsWith(String(predicate.value));
+            default: return false;
+          }
+        }));
+        allItems.push(...matches);
+        if (!page.hasNext) break;
+        if (page.items.length === 0) throw new Error('Incomplete test pagination');
+        skip += page.items.length;
+      }
+      if (pageCount >= 200) throw new Error('Test pagination cap exceeded');
+      const limit = options.limit ?? 2;
+      const requestedSkip = options.skip ?? 0;
+      const pageItems = allItems.slice(requestedSkip, requestedSkip + limit);
+      const hasNext = requestedSkip + pageItems.length < allItems.length;
+      return {
+        items: pageItems,
+        totalCount: allItems.length,
+        hasNext,
+        currentPage: Math.floor(requestedSkip / limit),
+        pageSize: limit,
+        nextSkip: hasNext ? requestedSkip + limit : null,
+      } as any;
+    });
   });
 
   describe('Regression Test 1: Target membership after 100+ unrelated records', () => {
@@ -372,9 +424,8 @@ describe('WORKSTREAM 1: Authorization Query Regression Tests', () => {
       
       const result = await resolveAuthContext(targetMemberId);
       
-      // Should still resolve context but with undefined role
-      expect(result).not.toBeNull();
-      expect(result?.role).toBeUndefined();
+      // Deny by default: an invalid role must not produce an authorization context.
+      expect(result).toBeNull();
     });
   });
 

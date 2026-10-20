@@ -221,11 +221,20 @@ export async function verifyWebhookSignature(
         .digest('hex');
     }
 
-    // Compare signatures using constant-time comparison to prevent timing attacks
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
+    // timingSafeEqual throws when buffer lengths differ. Treat malformed-length
+    // signatures as ordinary invalid signatures rather than leaking an exception.
+    const suppliedSignature = Buffer.from(signature);
+    const computedSignature = Buffer.from(expectedSignature);
+    if (suppliedSignature.length !== computedSignature.length) {
+      return {
+        valid: false,
+        error: 'Webhook signature verification failed',
+        reason: 'INVALID_SIGNATURE',
+      };
+    }
+
+    // Equal-length comparisons use a constant-time primitive.
+    const isValid = crypto.timingSafeEqual(suppliedSignature, computedSignature);
 
     if (!isValid) {
       return {
