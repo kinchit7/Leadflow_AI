@@ -42,6 +42,8 @@ jobs:
           # This Wix-generated Cart V2 package is referenced by the current floating SDK tree
           # but is not published at the requested version. Tests do not exercise e-commerce APIs.
           npm pkg set 'overrides.@wix/auto_sdk_ecom_current-cart-v-2=npm:empty-npm-package@1.0.0'
+          # This generated subscription-contracts version is also unpublished; tests do not exercise it.
+          npm pkg set 'overrides.@wix/auto_sdk_ecom_subscription-contracts=npm:empty-npm-package@1.0.0'
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
