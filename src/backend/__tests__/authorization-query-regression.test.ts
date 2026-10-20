@@ -1330,4 +1330,85 @@ describe('WORKSTREAM 1: Authorization Query Regression Tests', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('Regression Test 22: Business-ID change detection in validateContextFreshness', () => {
+    it('should fail closed when business ID changes between validations', async () => {
+      const targetMemberId = 'member-target';
+      const originalBusinessId = 'business-original';
+      const newBusinessId = 'business-new';
+      
+      // Create original context with original business ID
+      const originalContext: AuthContext = {
+        memberId: targetMemberId,
+        businessId: originalBusinessId,
+        role: 'admin',
+        _validatedAt: new Date(),
+      };
+      
+      // Mock fresh resolution to return different business ID
+      const memberships: BusinessMembers[] = [
+        {
+          _id: 'bm-1',
+          memberId: targetMemberId,
+          businessId: newBusinessId,
+          role: 'admin',
+          status: 'active',
+        },
+      ];
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: memberships,
+        totalCount: 1,
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      // Import validateContextFreshness from auth module
+      const { validateContextFreshness } = await import('../auth.web');
+      const result = await validateContextFreshness(originalContext);
+      
+      // Should fail closed due to business ID mismatch
+      expect(result).toBe(false);
+    });
+
+    it('should succeed when business ID remains the same', async () => {
+      const targetMemberId = 'member-target';
+      const businessId = 'business-same';
+      
+      // Create original context
+      const originalContext: AuthContext = {
+        memberId: targetMemberId,
+        businessId: businessId,
+        role: 'admin',
+        _validatedAt: new Date(),
+      };
+      
+      // Mock fresh resolution to return same business ID
+      const memberships: BusinessMembers[] = [
+        {
+          _id: 'bm-1',
+          memberId: targetMemberId,
+          businessId: businessId,
+          role: 'admin',
+          status: 'active',
+        },
+      ];
+      
+      vi.mocked(BaseCrudService.getAll).mockResolvedValueOnce({
+        items: memberships,
+        totalCount: 1,
+        hasNext: false,
+        currentPage: 0,
+        pageSize: 100,
+      } as any);
+      
+      // Import validateContextFreshness from auth module
+      const { validateContextFreshness } = await import('../auth.web');
+      const result = await validateContextFreshness(originalContext);
+      
+      // Should succeed - business ID unchanged
+      expect(result).toBe(true);
+    });
+  });
 });

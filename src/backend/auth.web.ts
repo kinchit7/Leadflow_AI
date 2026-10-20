@@ -252,6 +252,16 @@ export async function validateContextFreshness(
       return false;
     }
 
+    // PHASE 3F-C CRITICAL: Check if businessId changed
+    // A member reassigned to a different business must not access data from the old business
+    if (freshContext.businessId !== authContext.businessId) {
+      console.warn(
+        `validateContextFreshness: Business ID changed for member ${authContext.memberId} ` +
+        `(${authContext.businessId} -> ${freshContext.businessId})`
+      );
+      return false;
+    }
+
     return true;
   } catch (error) {
     console.error(`validateContextFreshness: Unexpected error:`, error);
