@@ -11,6 +11,14 @@ on:
       - "vitest.setup.ts"
       - ".github/workflows/workstream1-tests.yml"
 
+  pull_request:
+    paths:
+      - "src/backend/**"
+      - "package.json"
+      - "vitest.config.ts"
+      - "vitest.setup.ts"
+      - ".github/workflows/workstream1-tests.yml"
+
 permissions:
   contents: read
 
