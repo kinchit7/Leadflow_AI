@@ -526,6 +526,27 @@ export interface Products {
 
 
 /**
+ * Collection ID: ratelimits
+ * Interface for RateLimits
+ */
+export interface RateLimits {
+  _id: string;
+  _createdDate?: Date;
+  _updatedDate?: Date;
+  /** @wixFieldType text */
+  key?: string;
+  /** @wixFieldType number */
+  count?: number;
+  /** @wixFieldType datetime */
+  windowStart?: Date | string;
+  /** @wixFieldType datetime */
+  windowEnd?: Date | string;
+  /** @wixFieldType datetime */
+  lastUpdated?: Date | string;
+}
+
+
+/**
  * Collection ID: roles
  * Interface for Roles
  */
@@ -690,4 +711,27 @@ export interface WalletTransactions {
   description?: string;
   /** @wixFieldType text */
   status?: string;
+}
+
+
+/**
+ * Collection ID: webhookidempotency
+ * Interface for WebhookIdempotencyRecords
+ */
+export interface WebhookIdempotencyRecords {
+  _id: string;
+  _createdDate?: Date;
+  _updatedDate?: Date;
+  /** @wixFieldType text */
+  eventId?: string;
+  /** @wixFieldType text */
+  provider?: string;
+  /** @wixFieldType text */
+  businessId?: string;
+  /** @wixFieldType datetime */
+  timestamp?: Date | string;
+  /** @wixFieldType text */
+  status?: string;
+  /** @wixFieldType text */
+  result?: string;
 }
