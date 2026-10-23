@@ -703,15 +703,17 @@ export async function post_generateAICustomerBrief(request: any) {
       return forbidden({
         body: {
           error: 'Forbidden',
-          message: error.message
+          message: 'You do not have permission to perform this action'
         }
       });
     }
 
+    // PHASE 3F-C HARDENING: Sanitize error messages to prevent information disclosure
+    // Never return raw error.message to client - may leak implementation details
     return serverError({
       body: {
         error: 'Failed to generate brief',
-        message: error.message
+        message: 'An error occurred while generating the brief. Please try again.'
       }
     });
   }
@@ -764,15 +766,16 @@ export async function get_aiCustomerBrief(request: any) {
       return forbidden({
         body: {
           error: 'Forbidden',
-          message: error.message
+          message: 'You do not have permission to perform this action'
         }
       });
     }
 
+    // PHASE 3F-C HARDENING: Sanitize error messages
     return serverError({
       body: {
         error: 'Failed to retrieve brief',
-        message: error.message
+        message: 'An error occurred while retrieving the brief. Please try again.'
       }
     });
   }
@@ -818,15 +821,16 @@ export async function post_invalidateAICustomerBrief(request: any) {
       return forbidden({
         body: {
           error: 'Forbidden',
-          message: error.message
+          message: 'You do not have permission to perform this action'
         }
       });
     }
 
+    // PHASE 3F-C HARDENING: Sanitize error messages
     return serverError({
       body: {
         error: 'Failed to invalidate brief',
-        message: error.message
+        message: 'An error occurred while invalidating the brief. Please try again.'
       }
     });
   }

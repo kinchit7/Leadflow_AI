@@ -66,7 +66,10 @@ export async function getBusinessBrainProfile(
       return null;
     }
 
-    // Get counts for all knowledge layers
+    // PHASE 3F-C HARDENING: Get counts for all knowledge layers with tenant filtering
+    // All queries should be scoped to the authenticated business
+    // Note: BaseCrudService.getAll does not support server-side filtering by businessId
+    // This is a limitation of the CMS API - we filter client-side but this should be improved
     const [productsResult, servicesResult, faqsResult, policiesResult, knowledgeResult] =
       await Promise.all([
         BaseCrudService.getAll<Products>('products', [], { limit: 1000 }),
@@ -76,11 +79,13 @@ export async function getBusinessBrainProfile(
         BaseCrudService.getAll<KnowledgeItems>('knowledgeitems', [], { limit: 1000 }),
       ]);
 
-    const productsCount = productsResult.items?.length || 0;
-    const servicesCount = servicesResult.items?.length || 0;
-    const faqsCount = faqsResult.items?.length || 0;
-    const policiesCount = policiesResult.items?.length || 0;
-    const businessHoursConfigured = (knowledgeResult.items?.length || 0) > 0;
+    // SECURITY FIX: Filter all results by businessId to prevent cross-tenant data leakage
+    // TODO: Implement server-side filtering in CMS API to avoid fetching all records
+    const productsCount = productsResult.items?.filter(p => p.businessId === authContext.businessId).length || 0;
+    const servicesCount = servicesResult.items?.filter(s => s.businessId === authContext.businessId).length || 0;
+    const faqsCount = faqsResult.items?.filter(f => f.businessId === authContext.businessId).length || 0;
+    const policiesCount = policiesResult.items?.filter(p => p.businessId === authContext.businessId).length || 0;
+    const businessHoursConfigured = (knowledgeResult.items?.filter(k => k.businessId === authContext.businessId).length || 0) > 0;
 
     return {
       businessId: authContext.businessId,

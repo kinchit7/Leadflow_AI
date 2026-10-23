@@ -66,6 +66,25 @@ export async function POST(request: Request) {
     // Parse request body
     const body = await request.text();
     
+    // SECURITY: Validate that isDemo flag is not set to true in production
+    // Demo mode should only be enabled via server-side configuration
+    let bodyObj: any = {};
+    try {
+      bodyObj = JSON.parse(body);
+    } catch (e) {
+      // Invalid JSON - will be caught by backend handler
+    }
+    
+    if (bodyObj.isDemo === true) {
+      return new Response(
+        JSON.stringify({
+          error: 'Invalid request',
+          message: 'Demo mode is not available in this environment'
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+    
     // Create mock request object for backend handler
     const mockRequest = {
       url: request.url,
@@ -89,10 +108,11 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error('POST /api/ai-customer-brief/generate error:', error);
+    // SECURITY: Do not expose internal error messages to client
     return new Response(
       JSON.stringify({
         error: 'Failed to generate AI brief',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        // Do not include error.message - it may leak internal details
       }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );

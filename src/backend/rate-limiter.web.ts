@@ -137,12 +137,14 @@ export async function checkRateLimit(
       }
     } catch (error) {
       console.error(`Error querying rate limit record for ${rateLimitKey}:`, error);
-      // Fail open: allow request if we can't check rate limit
-      // This prevents denial-of-service via rate limiter failure
+      // PHASE 3F-C HARDENING: Fail closed on rate limiter errors
+      // Prevents bypass of rate limiting when collection is missing or inaccessible
+      // Better to deny a request than to allow unlimited requests
       return {
-        allowed: true,
-        remaining: config.maxRequests,
+        allowed: false,
+        remaining: 0,
         resetTime: new Date(now.getTime() + config.windowMs),
+        retryAfter: Math.ceil(config.windowMs / 1000),
       };
     }
 

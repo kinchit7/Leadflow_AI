@@ -78,10 +78,11 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error('GET /api/ai-customer-brief error:', error);
+    // SECURITY: Do not expose internal error messages to client
     return new Response(
       JSON.stringify({
         error: 'Failed to retrieve AI brief',
-        details: error instanceof Error ? error.message : 'Unknown error',
+        // Do not include error.message - it may leak internal details
       }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );

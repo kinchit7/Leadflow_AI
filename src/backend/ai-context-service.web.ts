@@ -59,7 +59,7 @@ async function validateAuthContext(): Promise<AuthContext> {
  * @param authContext - Authentication context with tenant isolation
  * @returns Aggregated AI context data
  */
-async function buildAIContext(
+export async function buildAIContext(
   customerId: string,
   authContext: AuthContext
 ): Promise<AIContextData> {
